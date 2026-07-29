@@ -1,0 +1,27 @@
+# Deedwell edge. App origin and (later) customer-site origins are separate —
+# preview/customer domains never share cookies with the app (threat T-preview).
+
+app.deedwell.example {
+	encode gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Content-Security-Policy "default-src 'self'"
+	}
+
+	reverse_proxy api:3000
+}
+
+# Phase 5 (custom domains) enables on-demand TLS gated by the approved-domain
+# registry. The ask endpoint is an indexed lookup — unverified domains are
+# refused certificates. Kept here as the designed configuration; the site
+# router service does not exist yet.
+#
+# {
+# 	on_demand_tls {
+# 		ask http://api:3000/internal/tls-approved
+# 	}
+# }

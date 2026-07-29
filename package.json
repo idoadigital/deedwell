@@ -1,0 +1,31 @@
+{
+  "name": "deedwell",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Deedwell — AI workforce and operating workspace for nonprofit organizations",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "packageManager": "pnpm@9.15.9",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "migrate": "tsx packages/database/src/migrate-cli.ts",
+    "dev:api": "tsx watch apps/api/src/main.ts",
+    "worker": "tsx apps/api/src/worker.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.0",
+    "@types/pg": "^8.11.10",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.8"
+  },
+  "dependencies": {
+    "fastify": "^4.28.1",
+    "pg": "^8.13.1",
+    "zod": "^3.23.8"
+  },
+  "type": "module"
+}

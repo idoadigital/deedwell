@@ -1,0 +1,74 @@
+# Deedwell dev/beta stack (single Hetzner node). See docs/ARCHITECTURE.md.
+# Secrets come from the environment / an .env file next to this compose file —
+# never from the repository.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: deedwell
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: deedwell
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U deedwell"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redisdata:/data
+
+  api:
+    build:
+      context: ../..
+      dockerfile: infrastructure/docker/api.Dockerfile
+    environment:
+      DATABASE_URL: postgres://deedwell:${POSTGRES_PASSWORD}@postgres:5432/deedwell
+      DATABASE_APP_URL: postgres://deedwell_app:${APP_DB_PASSWORD}@postgres:5432/deedwell
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?set APP_DB_PASSWORD}
+      DATA_DIR: /data
+      MODEL_PROVIDER: ${MODEL_PROVIDER:-mock}
+      INLINE_WORKER: "false"
+      PORT: "3000"
+    volumes:
+      - appdata:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: ../..
+      dockerfile: infrastructure/docker/api.Dockerfile
+    command: ["pnpm", "worker"]
+    environment:
+      DATABASE_URL: postgres://deedwell:${POSTGRES_PASSWORD}@postgres:5432/deedwell
+      DATABASE_APP_URL: postgres://deedwell_app:${APP_DB_PASSWORD}@postgres:5432/deedwell
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD}
+      DATA_DIR: /data
+      MODEL_PROVIDER: ${MODEL_PROVIDER:-mock}
+    volumes:
+      - appdata:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ../caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddydata:/data
+    depends_on:
+      - api
+
+volumes:
+  pgdata:
+  redisdata:
+  appdata:
+  caddydata:

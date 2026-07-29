@@ -1,0 +1,29 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2022"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "exactOptionalPropertyTypes": false,
+    "forceConsistentCasingInFileNames": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "types": ["node"],
+    "baseUrl": ".",
+    "paths": {
+      "@deedwell/schemas": ["packages/schemas/src/index.ts"],
+      "@deedwell/auth": ["packages/auth/src/index.ts"],
+      "@deedwell/database": ["packages/database/src/index.ts"],
+      "@deedwell/agent-runtime": ["packages/agent-runtime/src/index.ts"],
+      "@deedwell/tools": ["packages/tools/src/index.ts"],
+      "@deedwell/workflows": ["packages/workflows/src/index.ts"],
+      "@deedwell/grant-domain": ["packages/grant-domain/src/index.ts"],
+      "@deedwell/observability": ["packages/observability/src/index.ts"]
+    }
+  },
+  "include": ["apps/**/*.ts", "packages/**/*.ts", "tests/**/*.ts", "vitest.config.ts"]
+}
