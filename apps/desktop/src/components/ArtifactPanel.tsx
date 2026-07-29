@@ -11,9 +11,14 @@ import { Icon } from "./Icon";
 import { diffLines } from "../diff";
 
 const TYPE_LABEL: Record<string, string> = {
-  compliance_matrix: "Compliance",
+  compliance_matrix: "Matrix",
   grant_section: "Draft",
   export_package: "Export",
+  application_plan: "Plan",
+  budget: "Budget",
+  logic_model: "Logic model",
+  review_report: "Review",
+  compliance_report: "Checks",
 };
 
 export function ArtifactPanel({ org, detail }: { org: Organization; detail: RunDetail | null }) {
@@ -71,7 +76,7 @@ export function ArtifactPanel({ org, detail }: { org: Organization; detail: RunD
 
   return (
     <aside className="artifact-pane" aria-label="Artifacts">
-      <div className="artifact-tabs" role="tablist">
+      <div className="artifact-tabs" role="tablist" style={{ flexWrap: "wrap" }}>
         {artifacts.map((a) => (
           <button
             key={a.id}
@@ -79,8 +84,11 @@ export function ArtifactPanel({ org, detail }: { org: Organization; detail: RunD
             aria-selected={a.id === active?.id}
             className={`artifact-tab ${a.id === active?.id ? "active" : ""}`}
             onClick={() => setActiveId(a.id)}
+            title={a.title}
           >
-            {TYPE_LABEL[a.type] ?? a.type}
+            {a.type === "grant_section"
+              ? a.title.length > 16 ? `${a.title.slice(0, 15)}…` : a.title
+              : TYPE_LABEL[a.type] ?? a.type}
           </button>
         ))}
       </div>
@@ -133,7 +141,27 @@ export function ArtifactPanel({ org, detail }: { org: Organization; detail: RunD
                 orgId={org.id}
                 artifactId={artifact.artifact.id}
                 markdown={String(selectedVersion.content.markdown ?? "")}
+                budgetCsv={
+                  typeof selectedVersion.content.budgetCsv === "string"
+                    ? selectedVersion.content.budgetCsv
+                    : null
+                }
               />
+            )}
+            {artifact.artifact.type === "application_plan" && (
+              <PlanView content={selectedVersion.content} />
+            )}
+            {artifact.artifact.type === "budget" && (
+              <BudgetView content={selectedVersion.content} />
+            )}
+            {artifact.artifact.type === "logic_model" && (
+              <LogicModelView content={selectedVersion.content} />
+            )}
+            {artifact.artifact.type === "review_report" && (
+              <ReviewView content={selectedVersion.content} />
+            )}
+            {artifact.artifact.type === "compliance_report" && (
+              <ChecksView content={selectedVersion.content} />
             )}
             <p className="faint mt">
               v{selectedVersion.version} · {selectedVersion.change_summary} ·{" "}
@@ -224,30 +252,189 @@ function SectionDiff({ oldBody, newBody }: { oldBody: string; newBody: string })
   );
 }
 
+function PlanView({ content }: { content: Record<string, unknown> }) {
+  const sections = (content.sections ?? []) as Array<{
+    title: string; objective: string; wordLimit: number | null; requirementLines: number[];
+  }>;
+  const activities = (content.activities ?? []) as string[];
+  return (
+    <div className="prose">
+      <h3>Planned sections</h3>
+      {sections.map((s, i) => (
+        <div key={i} className="claim ok">
+          <strong>{i + 1}. {s.title}</strong>
+          <div className="muted">{s.objective}</div>
+          <div className="faint">
+            {s.wordLimit ? `Limit ${s.wordLimit} words · ` : ""}
+            {s.requirementLines.length
+              ? `Requirements: ${s.requirementLines.map((l) => `L${l}`).join(", ")}`
+              : "No specific requirement lines"}
+          </div>
+        </div>
+      ))}
+      <h3 className="mt">Program activities</h3>
+      <ul>{activities.map((a, i) => <li key={i}>{a}</li>)}</ul>
+    </div>
+  );
+}
+
+function BudgetView({ content }: { content: Record<string, unknown> }) {
+  const items = (content.items ?? []) as Array<{
+    category: string; description: string; activity: string; quantity: number;
+    unitCost: number; amount: number;
+  }>;
+  const warnings = (content.warnings ?? []) as string[];
+  return (
+    <div className="prose">
+      <table>
+        <thead><tr><th>Item</th><th>Activity</th><th style={{ textAlign: "right" }}>Amount</th></tr></thead>
+        <tbody>
+          {items.map((it, i) => (
+            <tr key={i}>
+              <td>
+                <span className="pill gray" style={{ marginRight: 6 }}>{it.category}</span>
+                {it.description}
+              </td>
+              <td className="muted">{it.activity}</td>
+              <td className="mono" style={{ textAlign: "right" }}>${it.amount.toLocaleString()}</td>
+            </tr>
+          ))}
+          <tr>
+            <td colSpan={2}><strong>Total</strong></td>
+            <td className="mono" style={{ textAlign: "right" }}>
+              <strong>${Number(content.total ?? 0).toLocaleString()}</strong>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      {warnings.length > 0 && (
+        <div className="msg-card warn">
+          {warnings.map((w, i) => <div key={i} className="muted" style={{ fontSize: 13 }}>{w}</div>)}
+        </div>
+      )}
+      <h3 className="mt">Budget narrative</h3>
+      <p className="muted">{String(content.narrative ?? "")}</p>
+    </div>
+  );
+}
+
+function LogicModelView({ content }: { content: Record<string, unknown> }) {
+  const chain: Array<[string, unknown]> = [
+    ["Problem", content.problem],
+    ["Inputs", content.inputs],
+    ["Activities", content.activities],
+    ["Outputs", content.outputs],
+    ["Outcomes", content.outcomes],
+    ["Impact", content.impact],
+  ];
+  const indicators = (content.indicators ?? []) as Array<{
+    outcome: string; indicator: string; baseline: string; target: string; frequency: string;
+  }>;
+  return (
+    <div className="prose">
+      {chain.map(([label, value]) => (
+        <div key={label} style={{ marginBottom: 8 }}>
+          <strong>{label}:</strong>{" "}
+          {Array.isArray(value)
+            ? <ul style={{ margin: "4px 0 0" }}>{value.map((v, i) => <li key={i}>{String(v)}</li>)}</ul>
+            : <span className="muted">{String(value ?? "")}</span>}
+        </div>
+      ))}
+      <h3 className="mt">Indicators</h3>
+      <table>
+        <thead><tr><th>Indicator</th><th>Baseline</th><th>Target</th></tr></thead>
+        <tbody>
+          {indicators.map((ind, i) => (
+            <tr key={i}>
+              <td>{ind.indicator}<div className="faint">{ind.outcome}</div></td>
+              <td className="muted">{ind.baseline}</td>
+              <td className="muted">{ind.target} <span className="faint">({ind.frequency})</span></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function ReviewView({ content }: { content: Record<string, unknown> }) {
+  const reviews = (content.reviews ?? []) as Array<{
+    reviewer: string; criterion: string; score: number; maxScore: number;
+    strengths: string; weaknesses: string; fatalFlaw: boolean;
+  }>;
+  const recommendations = (content.revisionRecommendations ?? []) as string[];
+  return (
+    <div className="prose">
+      <p><strong>Panel score: {Number(content.overall ?? 0)}/{Number(content.max ?? 0)}</strong></p>
+      {reviews.map((r, i) => (
+        <div key={i} className={`claim ${r.fatalFlaw ? "flagged" : "ok"}`}>
+          <span className="support">{r.reviewer} · {r.score}/{r.maxScore}{r.fatalFlaw ? " · FATAL FLAW" : ""}</span>
+          <div>{r.criterion}</div>
+          <div className="faint">+ {r.strengths}</div>
+          <div className="faint">− {r.weaknesses}</div>
+        </div>
+      ))}
+      {recommendations.length > 0 && (
+        <>
+          <h3 className="mt">Revision recommendations</h3>
+          <ul>{recommendations.map((r, i) => <li key={i} className="muted">{r}</li>)}</ul>
+        </>
+      )}
+    </div>
+  );
+}
+
+function ChecksView({ content }: { content: Record<string, unknown> }) {
+  const checks = (content.checks ?? []) as Array<{ name: string; pass: boolean; detail: string }>;
+  return (
+    <div className="prose">
+      {checks.map((c, i) => (
+        <div key={i} className={`claim ${c.pass ? "ok" : "flagged"}`}>
+          <span className="support">{c.pass ? "pass" : "attention"}</span>
+          <div>{c.name}</div>
+          <div className="faint">{c.detail}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function ExportView({
   orgId,
   artifactId,
   markdown,
+  budgetCsv,
 }: {
   orgId: string;
   artifactId: string;
   markdown: string;
+  budgetCsv: string | null;
 }) {
-  async function download() {
-    const text = await api.getExportMarkdown(orgId, artifactId);
-    const blob = new Blob([text], { type: "text/markdown" });
+  function downloadBlob(text: string, filename: string, type: string) {
+    const blob = new Blob([text], { type });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "application-package.md";
+    a.download = filename;
     a.click();
     URL.revokeObjectURL(url);
   }
+  async function download() {
+    const text = await api.getExportMarkdown(orgId, artifactId);
+    downloadBlob(text, "application-package.md", "text/markdown");
+  }
   return (
     <div>
-      <button className="primary" onClick={download}>
-        <span className="row"><Icon name="download" /> Download package (.md)</span>
-      </button>
+      <div className="row">
+        <button className="primary" onClick={download}>
+          <span className="row"><Icon name="download" /> Download package (.md)</span>
+        </button>
+        {budgetCsv && (
+          <button onClick={() => downloadBlob(budgetCsv, "budget.csv", "text/csv")}>
+            <span className="row"><Icon name="download" /> Budget (.csv)</span>
+          </button>
+        )}
+      </div>
       <pre
         className="mono mt"
         style={{ whiteSpace: "pre-wrap", background: "var(--muted)", padding: 12, borderRadius: 8 }}

@@ -9,10 +9,13 @@ import { createModelProvider, type ModelProvider } from "@deedwell/agent-runtime
 import { ToolGateway } from "@deedwell/tools";
 import { PgWorkflowEngine } from "@deedwell/workflows";
 import {
+  buildGrantFullWorkflow,
   buildGrantSliceWorkflow,
+  createGrantSource,
   registerGrantTools,
   seedAgentDefinitions,
   type GrantServices,
+  type GrantSourceProvider,
 } from "@deedwell/grant-domain";
 
 export interface Deps {
@@ -22,6 +25,7 @@ export interface Deps {
   provider: ModelProvider;
   gateway: ToolGateway;
   engine: PgWorkflowEngine<GrantServices>;
+  grantSource: GrantSourceProvider;
 }
 
 export async function createDeps(overrides: Partial<{
@@ -47,7 +51,16 @@ export async function createDeps(overrides: Partial<{
     overrides.backoffMs
   );
   engine.register(buildGrantSliceWorkflow());
+  engine.register(buildGrantFullWorkflow());
 
   await seedAgentDefinitions(adminPool);
-  return { adminPool, appPool, storage, provider, gateway, engine };
+  return {
+    adminPool,
+    appPool,
+    storage,
+    provider,
+    gateway,
+    engine,
+    grantSource: createGrantSource(),
+  };
 }

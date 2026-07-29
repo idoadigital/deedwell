@@ -20,9 +20,11 @@ export async function upsertArtifactVersion(
     changeSummary: string;
   }
 ): Promise<{ artifactId: string; version: number }> {
+  // Title participates in identity so one run can hold several artifacts of
+  // the same type (e.g. one grant_section per planned section).
   const existing = await client.query(
-    "SELECT id, current_version FROM artifacts WHERE run_id = $1 AND type = $2",
-    [args.runId, args.type]
+    "SELECT id, current_version FROM artifacts WHERE run_id = $1 AND type = $2 AND title = $3",
+    [args.runId, args.type, args.title]
   );
   let artifactId: string;
   let version: number;

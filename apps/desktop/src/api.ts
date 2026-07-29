@@ -1,12 +1,17 @@
 import type {
   AgentInfo,
+  ApplicationRow,
   Approval,
   ArtifactDetail,
+  OpportunityDetail,
+  OpportunityRow,
   Organization,
   OrgFactRow,
+  PassportStatus,
   Project,
   RunDetail,
   RunSummary,
+  SearchHit,
 } from "./types";
 
 export const API_URL: string =
@@ -150,3 +155,58 @@ export const getExportMarkdown = (orgId: string, artifactId: string) =>
 // ---- agents ---------------------------------------------------------------
 
 export const listAgents = () => call<{ agents: AgentInfo[] }>("GET", "/v1/agents");
+
+// ---- Phase 3: passport, discovery, applications ---------------------------
+
+export const getPassport = (orgId: string) =>
+  call<PassportStatus>("GET", `/v1/orgs/${orgId}/passport`);
+
+export const grantSearch = (orgId: string, keyword: string) =>
+  call<{ source: string; results: SearchHit[] }>("POST", `/v1/orgs/${orgId}/grant-search`, {
+    keyword,
+  });
+
+export const importOpportunity = (
+  orgId: string,
+  projectId: string,
+  input: {
+    title: string;
+    funder: string;
+    opportunityNumber?: string | null;
+    deadline?: string | null;
+    fundingMax?: number | null;
+    sourceUrl?: string | null;
+    source: "manual" | "grants_gov";
+  }
+) =>
+  call<{ opportunityId: string }>(
+    "POST",
+    `/v1/orgs/${orgId}/projects/${projectId}/opportunities`,
+    input
+  );
+
+export const listOpportunities = (orgId: string) =>
+  call<{ opportunities: OpportunityRow[] }>("GET", `/v1/orgs/${orgId}/opportunities`);
+
+export const getOpportunity = (orgId: string, opportunityId: string) =>
+  call<OpportunityDetail>("GET", `/v1/orgs/${orgId}/opportunities/${opportunityId}`);
+
+export const startGrantApplication = (
+  orgId: string,
+  projectId: string,
+  input: { opportunityId: string; fileId: string }
+) =>
+  call<{ runId: string }>(
+    "POST",
+    `/v1/orgs/${orgId}/projects/${projectId}/grant-application`,
+    input
+  );
+
+export const listApplications = (orgId: string) =>
+  call<{ applications: ApplicationRow[] }>("GET", `/v1/orgs/${orgId}/applications`);
+
+export const recordOutcome = (
+  orgId: string,
+  applicationId: string,
+  input: { status: string; awardAmount?: number | null; feedback?: string; lessons?: string }
+) => call<{ ok: true }>("POST", `/v1/orgs/${orgId}/applications/${applicationId}/outcome`, input);

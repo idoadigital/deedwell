@@ -1,10 +1,14 @@
 import type { ModelProvider, ModelRequest, ModelResponse } from "./index.js";
 import type {
+  BudgetOutput,
   ExtractedRequirement,
+  LogicModelOutput,
   OrgFact,
   RequirementsExtractionOutput,
+  ReviewPanelOutput,
   SectionClaim,
   SectionDraftOutput,
+  SectionPlanOutput,
 } from "@deedwell/schemas";
 
 /**
@@ -19,10 +23,15 @@ export class MockModelProvider implements ModelProvider {
   readonly name = "mock";
 
   async complete(request: ModelRequest): Promise<ModelResponse> {
-    const text =
-      request.outputSchemaRef === "requirements_extraction"
-        ? JSON.stringify(extractRequirements(request))
-        : JSON.stringify(draftSection(request));
+    const generators: Record<ModelRequest["outputSchemaRef"], (r: ModelRequest) => unknown> = {
+      requirements_extraction: extractRequirements,
+      section_draft: draftSection,
+      section_plan: planSections,
+      budget: buildBudget,
+      logic_model: buildLogicModel,
+      review_panel: reviewPanel,
+    };
+    const text = JSON.stringify(generators[request.outputSchemaRef](request));
     const inputChars =
       request.system.length +
       request.task.length +
@@ -127,4 +136,156 @@ function draftSection(request: ModelRequest): SectionDraftOutput {
     claims,
     wordCount: body.split(/\s+/).filter(Boolean).length,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Phase 3 generators — deterministic stand-ins, same caveats as above.
+// ---------------------------------------------------------------------------
+
+function block(request: ModelRequest, label: string): string {
+  return request.dataBlocks.find((b) => b.label === label)?.content ?? "";
+}
+
+function jsonBlock<T>(request: ModelRequest, label: string, fallback: T): T {
+  try {
+    return JSON.parse(block(request, label)) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+const STANDARD_SECTIONS: Array<{ title: string; match: RegExp; objective: string }> = [
+  { title: "Statement of Need", match: /need|problem|population|communit/i,
+    objective: "Establish the problem and the population served, grounded in evidence." },
+  { title: "Program Design", match: /program|design|activit|implement|approach|intervention/i,
+    objective: "Describe the intervention, activities, and implementation plan." },
+  { title: "Organizational Capacity", match: /capacity|experience|staff|qualifi|organiza/i,
+    objective: "Demonstrate the organization's ability to deliver the program." },
+  { title: "Evaluation Plan", match: /evaluat|outcome|measur|monitor|indicator|demonstrate/i,
+    objective: "Explain how outputs and outcomes will be measured and reported." },
+];
+
+function planSections(request: ModelRequest): SectionPlanOutput {
+  const requirements = jsonBlock<ExtractedRequirement[]>(request, "requirements", []);
+  const narrative = requirements.filter((r) => r.kind === "narrative");
+  const sections = STANDARD_SECTIONS.map((s) => {
+    const matched = narrative.filter((r) => s.match.test(r.text));
+    return {
+      title: s.title,
+      objective: s.objective,
+      wordLimit: matched.find((r) => r.wordLimit)?.wordLimit ?? null,
+      requirementLines: matched.map((r) => r.sourceLocation.line),
+    };
+  }).filter((s, idx) => idx < 2 || s.requirementLines.length > 0);
+  return {
+    sections: sections.length ? sections : [STANDARD_SECTIONS[0]!].map((s) => ({
+      title: s.title, objective: s.objective, wordLimit: null, requirementLines: [],
+    })),
+    activities: [
+      "Participant outreach and enrollment",
+      "Core program delivery",
+      "Staff training and supervision",
+      "Monitoring, evaluation, and reporting",
+    ],
+  };
+}
+
+function buildBudget(request: ModelRequest): BudgetOutput {
+  const activities = jsonBlock<string[]>(request, "activities", ["Core program delivery"]);
+  const items: BudgetOutput["items"] = activities.flatMap((activity, i) => [
+    {
+      category: "personnel" as const,
+      description: `Program staff time — ${activity.toLowerCase()}`,
+      activity,
+      quantity: 1,
+      unitCost: 12000 + i * 1500,
+    },
+    {
+      category: "direct" as const,
+      description: `Materials and services — ${activity.toLowerCase()}`,
+      activity,
+      quantity: 1,
+      unitCost: 3000 + i * 500,
+    },
+  ]);
+  items.push({
+    category: "indirect",
+    description: "Indirect costs (10% de minimis)",
+    activity: "Administration",
+    quantity: 1,
+    unitCost: Math.round(items.reduce((n, it) => n + it.quantity * it.unitCost, 0) * 0.1),
+  });
+  return {
+    currency: "USD",
+    items,
+    narrative:
+      "Each line item is tied to a planned activity; personnel costs reflect staff time and " +
+      "direct costs cover materials and services. Indirect costs use the 10% de minimis rate. " +
+      "[mock provider]",
+  };
+}
+
+function buildLogicModel(request: ModelRequest): LogicModelOutput {
+  const activities = jsonBlock<string[]>(request, "activities", ["Core program delivery"]);
+  const facts = jsonBlock<OrgFact[]>(request, "org_facts", []);
+  const mission = facts.find((f) => f.key === "mission")?.value ?? "the organization's mission";
+  const outcomes = [
+    "Participants demonstrate improved program-specific outcomes",
+    "Organizational service capacity is strengthened",
+  ];
+  return {
+    problem: `The community need addressed by ${mission}. [mock provider]`,
+    inputs: ["Program staff", "Grant funding", "Community partnerships", "Facilities"],
+    activities,
+    outputs: activities.map((a) => `Completed: ${a.toLowerCase()} (count tracked quarterly)`),
+    outcomes,
+    impact: "Sustained improvement in wellbeing for the served population.",
+    indicators: outcomes.map((outcome, i) => ({
+      outcome,
+      indicator: i === 0 ? "% of participants meeting outcome benchmark" : "# of participants served per quarter",
+      baseline: "To be established at intake",
+      target: i === 0 ? "70% by end of grant year" : "25% increase over prior year",
+      source: "Program records and participant assessments",
+      frequency: "Quarterly",
+    })),
+  };
+}
+
+function reviewPanel(request: ModelRequest): ReviewPanelOutput {
+  const requirements = jsonBlock<ExtractedRequirement[]>(request, "requirements", []);
+  const coverage = jsonBlock<{ coveredLines: number[]; flaggedClaims: number }>(
+    request, "coverage", { coveredLines: [], flaggedClaims: 0 }
+  );
+  const mandatory = requirements.filter((r) => r.mandatory).slice(0, 4);
+  const reviewers = ["program", "financial", "compliance", "skeptic"] as const;
+  const reviews: ReviewPanelOutput["reviews"] = reviewers.map((reviewer, i) => {
+    const req = mandatory[i % Math.max(mandatory.length, 1)];
+    const covered = req ? coverage.coveredLines.includes(req.sourceLocation.line) : false;
+    const skepticPenalty = reviewer === "skeptic" ? 1 : 0;
+    return {
+      reviewer,
+      criterion: req ? req.text.slice(0, 300) : "Overall responsiveness to the announcement",
+      score: Math.max(0, (covered ? 4 : 2) - skepticPenalty),
+      maxScore: 5 as const,
+      strengths: covered
+        ? "The application addresses this requirement with traceable content."
+        : "The application structure is clear.",
+      weaknesses: covered
+        ? reviewer === "skeptic"
+          ? "Evidence depth is thinner than top-scoring applications typically show."
+          : "Could cite stronger comparative evidence."
+        : "This requirement is not clearly addressed by any drafted section.",
+      fatalFlaw: !covered && (req?.mandatory ?? false) && reviewer === "compliance",
+    };
+  });
+  const recommendations: string[] = [];
+  if (coverage.flaggedClaims > 0) {
+    recommendations.push(
+      `Resolve ${coverage.flaggedClaims} flagged claim(s) with verified evidence before submission.`
+    );
+  }
+  for (const r of reviews.filter((r) => r.fatalFlaw)) {
+    recommendations.push(`Address unmet mandatory requirement: ${r.criterion.slice(0, 120)}`);
+  }
+  return { reviews, revisionRecommendations: recommendations };
 }

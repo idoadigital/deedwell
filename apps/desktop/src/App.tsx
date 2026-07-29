@@ -10,8 +10,10 @@ import { ProjectsView } from "./views/Projects";
 import { AgentsView } from "./views/Agents";
 import { ApprovalsView } from "./views/Approvals";
 import { WorkspaceView } from "./views/Workspace";
+import { GrantsView } from "./views/Grants";
+import { PassportView } from "./views/Passport";
 
-type NavId = "home" | "projects" | "agents" | "approvals";
+type NavId = "home" | "projects" | "grants" | "passport" | "agents" | "approvals";
 
 const ORG_KEY = "deedwell.org";
 
@@ -117,6 +119,7 @@ export default function App() {
   const navItems: Array<{ id: NavId; icon: string; label: string; badge?: number }> = [
     { id: "home", icon: "home", label: "Home" },
     { id: "projects", icon: "folder", label: "Projects" },
+    { id: "grants", icon: "file-text", label: "Grants" },
     { id: "agents", icon: "users", label: "AI Team" },
     { id: "approvals", icon: "check-circle", label: "Approvals", badge: pendingApprovals.length },
   ];
@@ -197,6 +200,18 @@ export default function App() {
           />
         ) : nav === "projects" ? (
           <ProjectsView org={org} projects={projects} runs={runs} onOpen={openProject} refresh={refresh} />
+        ) : nav === "grants" ? (
+          <GrantsView
+            org={org}
+            projects={projects}
+            onOpenProject={(projectId) => {
+              const project = projects.find((p) => p.id === projectId);
+              if (project) openProject(project);
+            }}
+            onOpenPassport={() => setNav("passport")}
+          />
+        ) : nav === "passport" ? (
+          <PassportView org={org} onBack={() => setNav("grants")} />
         ) : nav === "agents" ? (
           <AgentsView />
         ) : (

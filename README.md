@@ -2,13 +2,18 @@
 
 AI workforce and operating workspace for nonprofit organizations.
 
-This repository contains the **Phase 0 foundation**, the **Phase 1 desktop workspace**, and the
-**Phase 2 vertical slice** of the Deedwell platform: a tenant-isolated, RLS-enforced core with a
-durable workflow engine, a tool-gated agent runtime, and one end-to-end grant workflow —
+This repository contains **Phases 0–3** of the Deedwell platform: the tenant-isolated,
+RLS-enforced core with a durable workflow engine and tool-gated agent runtime (Phase 0), the
+Tauri desktop workspace (Phase 1), the original vertical slice (Phase 2), and the **full grant
+workspace** (Phase 3) —
 
-> upload a grant opportunity document → requirements extracted with source locations →
-> missing organization facts requested → compliance matrix artifact → drafted proposal section
-> with unsupported-claim flagging → human approval gate → exported application package.
+> discover an opportunity (live Grants.gov search) or upload its announcement → requirements
+> extracted with source locations → deterministic eligibility check against the Funding
+> Passport (missing facts are requested, never assumed) → weighted bid/no-bid score behind a
+> human gate → section planning → per-section drafting with unsupported-claim flagging →
+> validated line-item budget → logic model → four-persona reviewer panel → deterministic
+> compliance checks → final human approval → exported package (markdown + budget CSV) →
+> outcome tracking (awarded/rejected, amounts, lessons).
 
 Read first: `docs/FIRST_RESPONSE.md` (the BRD §25 analysis), then `docs/ARCHITECTURE.md`,
 `docs/THREAT_MODEL.md`, `docs/DATA_MODEL.md`, and `docs/adr/`.
@@ -24,9 +29,11 @@ Read first: `docs/FIRST_RESPONSE.md` (the BRD §25 analysis), then `docs/ARCHITE
   organization creation and switching, projects, an agent-activity workspace with live SSE
   updates, artifact panel with version diffs, and the approval interface. The "chat" timeline
   renders real workflow records; free-form assistant chat waits for a real model provider.
-  Installers/code-signing/auto-update are Phase 7. Full grant workspace (Phase 3), website
-  platform (Phase 4–5), and huddles (Phase 6) are **not built** and nothing here pretends
-  they are.
+  Installers/code-signing/auto-update are Phase 7.
+- Phase 3 judgment calls are deterministic by design (ADR-0006): the eligibility engine and
+  bid/no-bid scoring are rules code the model cannot override. Grants.gov discovery is a real
+  integration; `GRANT_SOURCE=mock` keeps tests hermetic. Website platform (Phase 4–5) and
+  huddles (Phase 6) are **not built** and nothing here pretends they are.
 
 ## Getting started
 

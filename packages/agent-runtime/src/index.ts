@@ -1,7 +1,11 @@
 import { z } from "zod";
 import {
+  BudgetOutput,
+  LogicModelOutput,
   RequirementsExtractionOutput,
+  ReviewPanelOutput,
   SectionDraftOutput,
+  SectionPlanOutput,
   type AgentDefinition,
 } from "@deedwell/schemas";
 import { MockModelProvider } from "./mock-provider.js";
@@ -22,7 +26,13 @@ export interface ModelRequest {
   task: string;
   /** Untrusted content. Providers must present it as data, never instructions. */
   dataBlocks: ModelDataBlock[];
-  outputSchemaRef: "requirements_extraction" | "section_draft";
+  outputSchemaRef:
+    | "requirements_extraction"
+    | "section_draft"
+    | "section_plan"
+    | "budget"
+    | "logic_model"
+    | "review_panel";
 }
 
 export interface ModelResponse {
@@ -54,6 +64,10 @@ export function createModelProvider(kind = process.env.MODEL_PROVIDER ?? "mock")
 const OUTPUT_SCHEMAS: Record<ModelRequest["outputSchemaRef"], z.ZodTypeAny> = {
   requirements_extraction: RequirementsExtractionOutput,
   section_draft: SectionDraftOutput,
+  section_plan: SectionPlanOutput,
+  budget: BudgetOutput,
+  logic_model: LogicModelOutput,
+  review_panel: ReviewPanelOutput,
 };
 
 /**
@@ -94,6 +108,9 @@ export async function runAgentTask<T>(
   task: string,
   dataBlocks: ModelDataBlock[]
 ): Promise<AgentTaskResult<T>> {
+  if (agent.outputSchemaRef === "none") {
+    throw new Error(`Agent "${agent.agentKey}" is deterministic system logic, not model-backed`);
+  }
   const schema = OUTPUT_SCHEMAS[agent.outputSchemaRef];
   const request: ModelRequest = {
     system: `${SECURITY_PREAMBLE}\n\nRole: ${agent.role}\n\n${agent.instructions}`,

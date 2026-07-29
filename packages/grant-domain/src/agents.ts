@@ -32,7 +32,97 @@ behind professional-sounding language.`,
   maxOutputRetries: 2,
 });
 
-export const ALL_AGENTS = [requirementsAnalyst, grantWriter];
+export const programPlanner: AgentDefinition = AgentDefinition.parse({
+  agentKey: "grant.program_planner",
+  version: 1,
+  displayName: "Sofia — Program Design Specialist",
+  team: "grant",
+  role: "Program Design Specialist on the Grant Team",
+  instructions: `Turn the funder's narrative requirements into a section outline and an activity
+plan. Every planned section must trace back to requirement source lines; never invent sections
+the funder did not ask for.`,
+  allowedTools: ["fetch_org_facts"],
+  outputSchemaRef: "section_plan",
+  maxOutputRetries: 2,
+});
+
+export const budgetSpecialist: AgentDefinition = AgentDefinition.parse({
+  agentKey: "grant.budget_specialist",
+  version: 1,
+  displayName: "Ade — Budget Specialist",
+  team: "grant",
+  role: "Budget Specialist on the Grant Team",
+  instructions: `Build a line-item budget where every item is tied to a planned activity and
+every activity with a cost appears in the budget. State assumptions in the narrative; never
+hide padding inside vague line items.`,
+  allowedTools: ["fetch_org_facts"],
+  outputSchemaRef: "budget",
+  maxOutputRetries: 2,
+});
+
+export const melSpecialist: AgentDefinition = AgentDefinition.parse({
+  agentKey: "grant.mel_specialist",
+  version: 1,
+  displayName: "Ingrid — MEL Specialist",
+  team: "grant",
+  role: "Monitoring, Evaluation, and Learning Specialist on the Grant Team",
+  instructions: `Produce a logic model and indicator table connecting activities to outputs,
+outcomes, and impact. Baselines that do not exist yet must say so — never fabricate baseline
+data.`,
+  allowedTools: ["fetch_org_facts"],
+  outputSchemaRef: "logic_model",
+  maxOutputRetries: 2,
+});
+
+export const reviewerPanel: AgentDefinition = AgentDefinition.parse({
+  agentKey: "grant.reviewer_panel",
+  version: 1,
+  displayName: "Reviewer Panel",
+  team: "grant",
+  role: "Simulated reviewer panel: program, financial, compliance, and skeptical reviewers",
+  instructions: `Score the application only against the funder's actual requirements. Identify
+fatal flaws bluntly; a polite review that hides a disqualifier is a failed review.`,
+  allowedTools: [],
+  outputSchemaRef: "review_panel",
+  maxOutputRetries: 2,
+});
+
+// Deterministic system agents: listed in the directory for transparency, but
+// their work is rule-based code (eligibility engine, bid scoring) — no model.
+export const eligibilityAnalyst: AgentDefinition = AgentDefinition.parse({
+  agentKey: "grant.eligibility_analyst",
+  version: 1,
+  displayName: "Elena — Eligibility Analyst",
+  team: "grant",
+  role: "Eligibility Analyst (deterministic rules engine — missing information is never treated as eligible)",
+  instructions: "Deterministic evaluation of derived eligibility rules against the fact ledger.",
+  allowedTools: ["fetch_org_facts"],
+  outputSchemaRef: "none",
+  maxOutputRetries: 0,
+});
+
+export const fundingStrategist: AgentDefinition = AgentDefinition.parse({
+  agentKey: "grant.funding_strategist",
+  version: 1,
+  displayName: "Noor — Funding Strategist",
+  team: "grant",
+  role: "Funding Strategist (deterministic bid/no-bid scoring — recommends not applying when the case is weak)",
+  instructions: "Deterministic weighted scoring across eligibility, timing, readiness, fit, and burden.",
+  allowedTools: [],
+  outputSchemaRef: "none",
+  maxOutputRetries: 0,
+});
+
+export const ALL_AGENTS = [
+  requirementsAnalyst,
+  grantWriter,
+  programPlanner,
+  budgetSpecialist,
+  melSpecialist,
+  reviewerPanel,
+  eligibilityAnalyst,
+  fundingStrategist,
+];
 
 /** Persist agent definitions as versioned records (platform-level, not tenant data). */
 export async function seedAgentDefinitions(adminPool: Pool): Promise<void> {

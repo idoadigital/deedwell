@@ -156,7 +156,16 @@ export const WorkflowRunStatus = z.enum([
 ]);
 export type WorkflowRunStatus = z.infer<typeof WorkflowRunStatus>;
 
-export const ArtifactType = z.enum(["compliance_matrix", "grant_section", "export_package"]);
+export const ArtifactType = z.enum([
+  "compliance_matrix",
+  "grant_section",
+  "export_package",
+  "application_plan",
+  "budget",
+  "logic_model",
+  "review_report",
+  "compliance_report",
+]);
 export type ArtifactType = z.infer<typeof ArtifactType>;
 
 // ---------------------------------------------------------------------------
@@ -171,7 +180,193 @@ export const AgentDefinition = z.object({
   role: z.string(),
   instructions: z.string(),
   allowedTools: z.array(z.string()),
-  outputSchemaRef: z.enum(["requirements_extraction", "section_draft"]),
+  outputSchemaRef: z.enum([
+    "requirements_extraction",
+    "section_draft",
+    "section_plan",
+    "budget",
+    "logic_model",
+    "review_panel",
+    // "none" marks agents whose work is deterministic system logic (e.g. the
+    // eligibility engine) — listed in the directory, never sent to a model.
+    "none",
+  ]),
   maxOutputRetries: z.number().int().min(0).max(5).default(2),
 });
 export type AgentDefinition = z.infer<typeof AgentDefinition>;
+
+// ---------------------------------------------------------------------------
+// Phase 3 — Funding Passport
+// ---------------------------------------------------------------------------
+
+export const PassportField = z.object({
+  key: z.string(),
+  label: z.string(),
+  section: z.string(),
+  required: z.boolean(),
+  hint: z.string().optional(),
+});
+export type PassportField = z.infer<typeof PassportField>;
+
+// ---------------------------------------------------------------------------
+// Phase 3 — Eligibility engine (deterministic; the model never decides)
+// ---------------------------------------------------------------------------
+
+export const EligibilityStatus = z.enum([
+  "verified_eligible",
+  "likely_eligible",
+  "ineligible",
+  "insufficient_information",
+  "conflicting",
+]);
+export type EligibilityStatus = z.infer<typeof EligibilityStatus>;
+
+export const EligibilityRuleKind = z.enum([
+  "entity_type",
+  "registration_required",
+  "geography",
+  "max_annual_budget",
+  "deadline_future",
+]);
+
+export const EligibilityRule = z.object({
+  ruleKey: z.string(),
+  kind: EligibilityRuleKind,
+  params: z.record(z.unknown()),
+  sourceLine: z.number().int().nullable(),
+});
+export type EligibilityRule = z.infer<typeof EligibilityRule>;
+
+export const RuleFinding = z.object({
+  ruleKey: z.string(),
+  status: z.enum(["pass", "fail", "unknown"]),
+  evidence: z.string(),
+  factKey: z.string().nullable(),
+});
+export type RuleFinding = z.infer<typeof RuleFinding>;
+
+// ---------------------------------------------------------------------------
+// Phase 3 — Bid/no-bid
+// ---------------------------------------------------------------------------
+
+export const BidDimension = z.object({
+  key: z.string(),
+  label: z.string(),
+  score: z.number().min(0).max(5),
+  weight: z.number(),
+  note: z.string(),
+});
+export type BidDimension = z.infer<typeof BidDimension>;
+
+export const BidRecommendation = z.enum(["apply", "do_not_apply", "needs_review"]);
+export type BidRecommendation = z.infer<typeof BidRecommendation>;
+
+// ---------------------------------------------------------------------------
+// Phase 3 — Agent output contracts
+// ---------------------------------------------------------------------------
+
+export const SectionPlanOutput = z.object({
+  sections: z
+    .array(
+      z.object({
+        title: z.string().min(1).max(300),
+        objective: z.string().min(1).max(2000),
+        wordLimit: z.number().int().positive().nullable(),
+        requirementLines: z.array(z.number().int()),
+      })
+    )
+    .min(1)
+    .max(12),
+  activities: z.array(z.string().min(1).max(300)).min(1).max(20),
+});
+export type SectionPlanOutput = z.infer<typeof SectionPlanOutput>;
+
+export const BudgetOutput = z.object({
+  currency: z.literal("USD"),
+  items: z
+    .array(
+      z.object({
+        category: z.enum(["personnel", "direct", "indirect", "equipment", "travel", "other"]),
+        description: z.string().min(1).max(400),
+        activity: z.string().min(1).max(300),
+        quantity: z.number().positive(),
+        unitCost: z.number().nonnegative(),
+      })
+    )
+    .min(1)
+    .max(60),
+  narrative: z.string().min(1),
+});
+export type BudgetOutput = z.infer<typeof BudgetOutput>;
+
+export const LogicModelOutput = z.object({
+  problem: z.string().min(1),
+  inputs: z.array(z.string()).min(1),
+  activities: z.array(z.string()).min(1),
+  outputs: z.array(z.string()).min(1),
+  outcomes: z.array(z.string()).min(1),
+  impact: z.string().min(1),
+  indicators: z
+    .array(
+      z.object({
+        outcome: z.string(),
+        indicator: z.string(),
+        baseline: z.string(),
+        target: z.string(),
+        source: z.string(),
+        frequency: z.string(),
+      })
+    )
+    .min(1),
+});
+export type LogicModelOutput = z.infer<typeof LogicModelOutput>;
+
+export const ReviewPanelOutput = z.object({
+  reviews: z
+    .array(
+      z.object({
+        reviewer: z.enum(["program", "financial", "compliance", "skeptic"]),
+        criterion: z.string().min(1).max(300),
+        score: z.number().min(0).max(5),
+        maxScore: z.literal(5),
+        strengths: z.string(),
+        weaknesses: z.string(),
+        fatalFlaw: z.boolean(),
+      })
+    )
+    .min(4),
+  revisionRecommendations: z.array(z.string()).max(20),
+});
+export type ReviewPanelOutput = z.infer<typeof ReviewPanelOutput>;
+
+// ---------------------------------------------------------------------------
+// Phase 3 — API inputs
+// ---------------------------------------------------------------------------
+
+export const GrantSearchInput = z.object({
+  keyword: z.string().min(2).max(200),
+});
+
+export const ImportOpportunityInput = z.object({
+  title: z.string().min(1).max(400),
+  funder: z.string().min(1).max(300),
+  opportunityNumber: z.string().max(100).nullable().optional(),
+  deadline: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  fundingMin: z.number().nonnegative().nullable().optional(),
+  fundingMax: z.number().nonnegative().nullable().optional(),
+  geography: z.string().max(200).nullable().optional(),
+  sourceUrl: z.string().url().max(1000).nullable().optional(),
+  source: z.enum(["manual", "grants_gov"]).default("manual"),
+});
+
+export const StartGrantApplicationInput = z.object({
+  opportunityId: z.string().uuid(),
+  fileId: z.string().uuid(),
+});
+
+export const RecordOutcomeInput = z.object({
+  status: z.enum(["submitted", "not_submitted", "withdrawn", "awarded", "rejected", "waitlisted"]),
+  awardAmount: z.number().nonnegative().nullable().optional(),
+  feedback: z.string().max(4000).optional(),
+  lessons: z.string().max(4000).optional(),
+});

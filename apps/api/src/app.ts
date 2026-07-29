@@ -8,6 +8,7 @@ import type { OrgRole } from "@deedwell/schemas";
 import type { Deps } from "./bootstrap.js";
 import { registerCoreRoutes } from "./routes-core.js";
 import { registerGrantRoutes } from "./routes-grant.js";
+import { registerGrantFullRoutes } from "./routes-grants-full.js";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -112,5 +113,6 @@ export function buildApp(deps: Deps): FastifyInstance {
   app.get("/healthz", async () => ({ ok: true }));
   registerCoreRoutes(app, ctx);
   registerGrantRoutes(app, ctx);
+  registerGrantFullRoutes(app, ctx);
   return app;
 }

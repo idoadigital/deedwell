@@ -53,14 +53,26 @@ Canonical DDL lives in `packages/database/migrations/`. All tenant-owned tables 
   actor_agent, action, entity_type/id, metadata jsonb (redacted).
 - `usage_ledger` — tenant, run, kind (`model_tokens | steps`), quantity, metadata.
 
+## Phase 3 (migration 0002)
+
+- `grant_opportunities` gains number/agency/deadline/funding range/geography/source_url/status;
+  sources extended with `grants_gov`.
+- `eligibility_rules` / `eligibility_results` — derived rules + per-rule findings and missing facts.
+- `bid_decisions` — dimension scores, total, recommendation, human decision + identity.
+- `grant_applications` / `application_sections` — application lifecycle; sections link to their
+  drafted artifacts with word limits and requirement line references.
+- `budgets` / `budget_items` — validated line items (unique per budget+description for idempotent rebuilds).
+- `review_runs` / `review_scores` — reviewer-panel metrics (append-only).
+- `grant_outcomes` — submitted/awarded/rejected etc., award amount, feedback, lessons.
+- Artifact types extended: `application_plan, budget, logic_model, review_report, compliance_report`.
+- Logic models remain artifact-content (ADR-0006) until a consumer needs them relational.
+
 ## Designed, not yet migrated (added in their phases)
 
 - Websites: `sites, site_pages, site_components, site_media, site_releases, deployments,
   domains, domain_verifications, dns_checks, forms, form_submissions, redirects` (Phase 4–5).
-- Communication: `channels, threads, messages, huddles, transcripts` (Phase 1/6).
-- Grants full: `eligibility_rules/results, bid_decisions, budgets, budget_items, logic_models,
-  indicators, review_runs, review_scores, grant_outcomes` (Phase 3).
+- Communication: `channels, threads, messages, huddles, transcripts` (Phase 6).
 - Billing: `billing_accounts, subscriptions, quotas` (Phase 7).
-- Knowledge: `knowledge_items, claims, claim_sources, conflicts` (Phase 3; `org_facts` is the seed).
+- Knowledge: `knowledge_items, claims, claim_sources, conflicts` (`org_facts` is the seed).
 
 Rationale: shipping empty tables invites drift; each phase lands its migration with its code.

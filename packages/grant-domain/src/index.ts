@@ -1,5 +1,32 @@
 export { scanForInjection, type InjectionWarning } from "./injection.js";
-export { requirementsAnalyst, grantWriter, ALL_AGENTS, seedAgentDefinitions } from "./agents.js";
+export {
+  requirementsAnalyst,
+  grantWriter,
+  programPlanner,
+  budgetSpecialist,
+  melSpecialist,
+  reviewerPanel,
+  eligibilityAnalyst,
+  fundingStrategist,
+  ALL_AGENTS,
+  seedAgentDefinitions,
+} from "./agents.js";
+export { PASSPORT_FIELDS, passportStatus, type PassportStatus } from "./passport.js";
+export {
+  deriveEligibilityRules,
+  evaluateEligibility,
+  type EligibilityEvaluation,
+} from "./eligibility.js";
+export { computeBidDecision, type BidInputs, type BidResult } from "./bidnobid.js";
+export {
+  GrantsGovProvider,
+  MockGrantSource,
+  createGrantSource,
+  type GrantSourceProvider,
+  type OpportunityRecord,
+} from "./sources.js";
+export { buildGrantFullWorkflow, GRANT_FULL_WORKFLOW } from "./workflow-full.js";
+export { renderFullExport, budgetCsv, type FullExportInput } from "./export-full.js";
 export { verifyClaims } from "./claims.js";
 export { requiredFactKeys } from "./facts.js";
 export { registerGrantTools } from "./tools.js";

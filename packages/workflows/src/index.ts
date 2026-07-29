@@ -254,12 +254,16 @@ export class PgWorkflowEngine<S> implements WorkflowEngine {
     const message = (err instanceof Error ? err.message : String(err)).slice(0, 1000);
     const attempts = run.attempts + 1;
     const exhausted = attempts >= run.max_attempts;
+    // next_attempt_at is computed in DATABASE time — mixing in the JS clock
+    // can push a 0ms-backoff retry microseconds past the claim query's now().
     await this.adminPool.query(
       `UPDATE workflow_runs SET status = $2, attempts = $3, last_error = $4,
-         next_attempt_at = $5, claimed_by = NULL, claimed_at = NULL
+         next_attempt_at = CASE WHEN $5::int IS NULL THEN NULL
+                                ELSE now() + make_interval(secs => $5::int / 1000.0) END,
+         claimed_by = NULL, claimed_at = NULL
        WHERE id = $1`,
       [run.id, exhausted ? "failed" : "pending", attempts, message,
-       exhausted ? null : new Date(Date.now() + this.backoffMs(attempts))]
+       exhausted ? null : Math.round(this.backoffMs(attempts))]
     );
     await this.journal(this.adminPool, run, "failed", durationMs, null, message);
     this.emit(run.tenant_id, run.id, exhausted ? "failed" : "pending", run.current_step);

@@ -42,6 +42,56 @@ const STEP_NARRATION: Record<string, { who: string; avatar: string; text: string
     avatar: "D",
     text: "Assembled the approved export package.",
   },
+  eligibility_check: {
+    who: "Elena · Eligibility Analyst",
+    avatar: "EL",
+    text: "Ran the deterministic eligibility rules against the organization's fact ledger.",
+  },
+  bid_no_bid: {
+    who: "Noor · Funding Strategist",
+    avatar: "NO",
+    text: "Scored this opportunity across eligibility, timing, readiness, fit, and burden.",
+  },
+  bid_gate: {
+    who: "Deedwell",
+    avatar: "D",
+    text: "Recorded your bid decision.",
+  },
+  plan_application: {
+    who: "Sofia · Program Design Specialist",
+    avatar: "SO",
+    text: "Planned the application sections and program activities from the requirements.",
+  },
+  build_budget: {
+    who: "Ade · Budget Specialist",
+    avatar: "AD",
+    text: "Built the line-item budget, tying every line to a planned activity.",
+  },
+  build_logic_model: {
+    who: "Ingrid · MEL Specialist",
+    avatar: "IN",
+    text: "Produced the logic model and indicator table.",
+  },
+  review_panel: {
+    who: "Reviewer Panel",
+    avatar: "RP",
+    text: "Four reviewer perspectives scored the application against the funder's requirements.",
+  },
+  final_compliance: {
+    who: "Deedwell",
+    avatar: "D",
+    text: "Ran the final deterministic compliance checks.",
+  },
+  final_gate: {
+    who: "Deedwell",
+    avatar: "D",
+    text: "Recorded your final decision.",
+  },
+  export_full: {
+    who: "Deedwell",
+    avatar: "D",
+    text: "Assembled the approved application package with budget CSV.",
+  },
 };
 
 export function WorkspaceView({
@@ -307,6 +357,27 @@ function InfoRequestCard({
   );
 }
 
+const APPROVAL_PRESENTATION: Record<
+  string,
+  { who: string; avatar: string; text: string; yes: string; no: string }
+> = {
+  section_export: {
+    who: "Marcus · Grant Writer", avatar: "MA",
+    text: "The draft is ready for your review. Nothing is exported until you approve it.",
+    yes: "Approve & export", no: "Request changes",
+  },
+  bid_decision: {
+    who: "Noor · Funding Strategist", avatar: "NO",
+    text: "Here is my bid/no-bid assessment. Pursue this opportunity, or pass and save the effort?",
+    yes: "Pursue this grant", no: "Don't pursue",
+  },
+  final_export: {
+    who: "Deedwell", avatar: "D",
+    text: "The full application passed internal review and compliance checks. Approve to export the final package.",
+    yes: "Approve & export package", no: "Send back for redrafting",
+  },
+};
+
 function ApprovalCard({
   org,
   detail,
@@ -323,6 +394,15 @@ function ApprovalCard({
   const canDecide = roleAtLeast(org.role, "admin");
 
   if (!approval) return null;
+  const meta = APPROVAL_PRESENTATION[approval.kind] ?? APPROVAL_PRESENTATION.section_export!;
+  const payload = approval.payload as {
+    warnings?: string[];
+    recommendation?: string;
+    total?: number;
+    rationale?: string;
+    dimensions?: Array<{ label: string; score: number; note: string }>;
+    reviewScore?: string;
+  };
 
   async function decide(decision: "approved" | "rejected") {
     setBusy(true);
@@ -339,13 +419,35 @@ function ApprovalCard({
 
   return (
     <div className="msg">
-      <span className="avatar agent" aria-hidden="true">MA</span>
+      <span className="avatar agent" aria-hidden="true">{meta.avatar}</span>
       <div className="msg-body">
-        <div className="msg-head"><span className="who">Marcus · Grant Writer</span></div>
-        <div className="msg-text">
-          The draft is ready for your review. Nothing is exported until you approve it.
-        </div>
+        <div className="msg-head"><span className="who">{meta.who}</span></div>
+        <div className="msg-text">{meta.text}</div>
         <div className="msg-card">
+          {payload.recommendation && (
+            <p style={{ marginBottom: 8 }}>
+              <span className={`pill ${payload.recommendation === "apply" ? "green" : payload.recommendation === "needs_review" ? "amber" : "red"}`}>
+                {payload.recommendation.replace(/_/g, " ")} · {payload.total}/100
+              </span>
+            </p>
+          )}
+          {payload.rationale && <p className="muted" style={{ fontSize: 13 }}>{payload.rationale}</p>}
+          {payload.dimensions && (
+            <table style={{ marginBottom: 8 }}>
+              <tbody>
+                {payload.dimensions.map((d) => (
+                  <tr key={d.label}>
+                    <td style={{ width: 170 }}>{d.label}</td>
+                    <td className="mono" style={{ width: 46 }}>{d.score}/5</td>
+                    <td className="faint">{d.note}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          {payload.reviewScore && (
+            <p className="muted" style={{ fontSize: 13 }}>Internal review panel score: {payload.reviewScore}</p>
+          )}
           {(approval.payload.warnings?.length ?? 0) > 0 && (
             <div className="msg-card warn" style={{ marginTop: 0 }}>
               <strong style={{ fontSize: 12.5 }}>Flagged for your attention</strong>
@@ -365,10 +467,10 @@ function ApprovalCard({
               {error && <p className="error-text" role="alert">{error}</p>}
               <div className="row">
                 <button className="primary" disabled={busy} onClick={() => decide("approved")}>
-                  Approve &amp; export
+                  {meta.yes}
                 </button>
                 <button className="danger" disabled={busy} onClick={() => decide("rejected")}>
-                  Request changes
+                  {meta.no}
                 </button>
               </div>
             </>
@@ -397,7 +499,8 @@ function IntakeCard({
   const [file, setFile] = useState<File | null>(null);
   const [title, setTitle] = useState("");
   const [funder, setFunder] = useState("");
-  const [sectionTitle, setSectionTitle] = useState("Statement of Need");
+  const [deadline, setDeadline] = useState("");
+  const [fundingMax, setFundingMax] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const canStart = roleAtLeast(org.role, "member");
@@ -418,12 +521,14 @@ function IntakeCard({
         file.name.endsWith(".md") ? "text/markdown" : "text/plain",
         btoa(binary)
       );
-      await api.startGrantSlice(org.id, project.id, {
-        fileId,
-        opportunityTitle: title,
+      const { opportunityId } = await api.importOpportunity(org.id, project.id, {
+        title,
         funder,
-        sectionTitle,
+        deadline: deadline || null,
+        fundingMax: fundingMax ? Number(fundingMax) : null,
+        source: "manual",
       });
+      await api.startGrantApplication(org.id, project.id, { opportunityId, fileId });
       refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not start the workflow");
@@ -439,7 +544,8 @@ function IntakeCard({
         <div className="msg-head"><span className="who">Deedwell</span></div>
         <div className="msg-text">
           Upload a grant opportunity document (.txt or .md for now) and the Grant Team will
-          extract its requirements, check what&rsquo;s missing, and draft a first section.
+          extract requirements, check eligibility, score the bid decision, and — if you choose
+          to pursue it — plan, draft, budget, and review the full application.
         </div>
         {canStart ? (
           <form className="msg-card" onSubmit={start}>
@@ -463,14 +569,26 @@ function IntakeCard({
                 <input id="opp-funder" required value={funder} onChange={(e) => setFunder(e.target.value)} />
               </div>
             </div>
-            <div className="field">
-              <label htmlFor="opp-section">Section to draft first</label>
-              <input
-                id="opp-section"
-                required
-                value={sectionTitle}
-                onChange={(e) => setSectionTitle(e.target.value)}
-              />
+            <div className="grid-2">
+              <div className="field">
+                <label htmlFor="opp-deadline">Deadline (if known)</label>
+                <input
+                  id="opp-deadline"
+                  type="date"
+                  value={deadline}
+                  onChange={(e) => setDeadline(e.target.value)}
+                />
+              </div>
+              <div className="field">
+                <label htmlFor="opp-max">Maximum award (USD, if known)</label>
+                <input
+                  id="opp-max"
+                  type="number"
+                  min="0"
+                  value={fundingMax}
+                  onChange={(e) => setFundingMax(e.target.value)}
+                />
+              </div>
             </div>
             {error && <p className="error-text" role="alert">{error}</p>}
             <button className="primary" disabled={busy || !file}>
