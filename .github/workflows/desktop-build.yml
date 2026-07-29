@@ -1,0 +1,81 @@
+# Builds Deedwell desktop installers on real platform runners.
+# macOS (.dmg, Apple Silicon + Intel), Windows (.exe/.msi), Linux (.deb/.rpm/.AppImage).
+#
+# Artifacts are UNSIGNED demo builds: macOS requires right-click → Open the
+# first time (Gatekeeper), Windows shows a SmartScreen warning. Code signing
+# and notarization are the Phase 7 release deliverable.
+#
+# Trigger: push to main, or manually via the Actions tab (workflow_dispatch).
+# The API the app talks to is set at build time via VITE_API_URL below.
+
+name: desktop-build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "apps/desktop/**"
+      - ".github/workflows/desktop-build.yml"
+
+env:
+  VITE_API_URL: http://178.104.188.229:3001
+  VITE_SITE_ROUTER_URL: http://178.104.188.229:8788
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest        # Apple Silicon (aarch64)
+            args: "--target aarch64-apple-darwin"
+          - platform: macos-latest        # Intel Macs
+            args: "--target x86_64-apple-darwin"
+          - platform: windows-latest
+            args: ""
+          - platform: ubuntu-22.04
+            args: ""
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Linux system dependencies
+        if: startsWith(matrix.platform, 'ubuntu')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev \
+            libayatana-appindicator3-dev librsvg2-dev
+
+      - run: pnpm install
+
+      - uses: tauri-apps/tauri-action@v0
+        with:
+          projectPath: apps/desktop
+          args: ${{ matrix.args }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deedwell-${{ matrix.platform }}-${{ strategy.job-index }}
+          path: |
+            apps/desktop/src-tauri/target/**/bundle/dmg/*.dmg
+            apps/desktop/src-tauri/target/**/bundle/macos/*.app.tar.gz
+            apps/desktop/src-tauri/target/**/bundle/nsis/*.exe
+            apps/desktop/src-tauri/target/**/bundle/msi/*.msi
+            apps/desktop/src-tauri/target/**/bundle/deb/*.deb
+            apps/desktop/src-tauri/target/**/bundle/rpm/*.rpm
+            apps/desktop/src-tauri/target/**/bundle/appimage/*.AppImage
+          if-no-files-found: warn
