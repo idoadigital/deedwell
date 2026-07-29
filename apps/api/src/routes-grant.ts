@@ -6,6 +6,47 @@ import type { WorkflowEvent } from "@deedwell/workflows";
 import { HttpError, type AppContext } from "./app.js";
 
 export function registerGrantRoutes(app: FastifyInstance, ctx: AppContext): void {
+  // ---- agent directory (platform-level, versioned definitions) -----------
+
+  app.get("/v1/agents", async () => {
+    const { rows } = await ctx.deps.appPool.query(
+      `SELECT DISTINCT ON (agent_key) agent_key, version, display_name, team, role, allowed_tools
+       FROM agent_definitions ORDER BY agent_key, version DESC`
+    );
+    return { agents: rows };
+  });
+
+  // ---- org-wide run and approval lists (workspace dashboard) --------------
+
+  app.get("/v1/orgs/:orgId/runs", async (req) => {
+    ctx.requireRole(req, "viewer");
+    const { rows } = await ctx.inOrg(req, (client) =>
+      client.query(
+        `SELECT r.id, r.project_id, p.name AS project_name, r.definition, r.status,
+                r.current_step, r.steps_used, r.step_budget, r.last_error,
+                r.state->'waiting' AS waiting, r.created_at, r.updated_at
+         FROM workflow_runs r JOIN projects p ON p.id = r.project_id
+         ORDER BY r.updated_at DESC LIMIT 100`
+      )
+    );
+    return { runs: rows };
+  });
+
+  app.get("/v1/orgs/:orgId/approvals", async (req) => {
+    ctx.requireRole(req, "viewer");
+    const { rows } = await ctx.inOrg(req, (client) =>
+      client.query(
+        `SELECT a.id, a.run_id, a.kind, a.payload, a.status, a.note, a.created_at,
+                p.name AS project_name, r.project_id
+         FROM approvals a
+         JOIN workflow_runs r ON r.id = a.run_id
+         JOIN projects p ON p.id = r.project_id
+         ORDER BY a.created_at DESC LIMIT 100`
+      )
+    );
+    return { approvals: rows };
+  });
+
   // ---- start the vertical slice ------------------------------------------
 
   app.post("/v1/orgs/:orgId/projects/:projectId/grant-slice", async (req, reply) => {

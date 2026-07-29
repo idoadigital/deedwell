@@ -1,4 +1,5 @@
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
+import cors from "@fastify/cors";
 import { ZodError } from "zod";
 import { hashSessionToken, roleAtLeast } from "@deedwell/auth";
 import { withContext, type PoolClient } from "@deedwell/database";
@@ -37,6 +38,12 @@ export function buildApp(deps: Deps): FastifyInstance {
     },
     bodyLimit: 15_000_000,
   });
+
+  // Desktop clients: Vite dev server and the Tauri webview origins.
+  const corsOrigins = (
+    process.env.CORS_ORIGINS ?? "http://localhost:5173,tauri://localhost,http://tauri.localhost"
+  ).split(",");
+  void app.register(cors, { origin: corsOrigins, credentials: false });
 
   app.decorateRequest("userId", null);
   app.decorateRequest("orgId", null);

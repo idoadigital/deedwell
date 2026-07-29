@@ -18,7 +18,11 @@ export default defineConfig({
     },
   },
   test: {
-    include: ["packages/**/*.test.ts", "tests/**/*.test.ts"],
+    include: [
+      "packages/**/*.test.ts",
+      "tests/**/*.test.ts",
+      "apps/desktop/src/**/*.test.ts",
+    ],
     setupFiles: ["tests/setup-env.ts"],
     // Integration/security tests share one Postgres database; run files serially.
     pool: "forks",

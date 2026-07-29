@@ -25,5 +25,6 @@
       "@deedwell/observability": ["packages/observability/src/index.ts"]
     }
   },
-  "include": ["apps/**/*.ts", "packages/**/*.ts", "tests/**/*.ts", "vitest.config.ts"]
+  "include": ["apps/**/*.ts", "packages/**/*.ts", "tests/**/*.ts", "vitest.config.ts"],
+  "exclude": ["apps/desktop"]
 }
