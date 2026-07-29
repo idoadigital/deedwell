@@ -9,7 +9,6 @@ export {
   eligibilityAnalyst,
   fundingStrategist,
   ALL_AGENTS,
-  seedAgentDefinitions,
 } from "./agents.js";
 export { PASSPORT_FIELDS, passportStatus, type PassportStatus } from "./passport.js";
 export {

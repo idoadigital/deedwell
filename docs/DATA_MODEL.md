@@ -67,10 +67,19 @@ Canonical DDL lives in `packages/database/migrations/`. All tenant-owned tables 
 - Artifact types extended: `application_plan, budget, logic_model, review_report, compliance_report`.
 - Logic models remain artifact-content (ADR-0006) until a consumer needs them relational.
 
+## Phase 4 (migration 0003)
+
+- `sites` — global slug (subdomain), theme, status, preview/active release pointers.
+- `site_pages` — mutable CMS working copy: typed block arrays + SEO fields per page.
+- `site_releases` — immutable build records: full snapshot, storage prefix, check results,
+  published/superseded lifecycle with approver identity.
+- `form_submissions` — tenant-stamped submissions from the public Site Router (app role reads
+  only; the router service writes as platform infrastructure).
+- Artifact type extended: `website_brief`.
+
 ## Designed, not yet migrated (added in their phases)
 
-- Websites: `sites, site_pages, site_components, site_media, site_releases, deployments,
-  domains, domain_verifications, dns_checks, forms, form_submissions, redirects` (Phase 4–5).
+- Domains: `domains, domain_verifications, dns_checks, redirects, site_media` (Phase 5+).
 - Communication: `channels, threads, messages, huddles, transcripts` (Phase 6).
 - Billing: `billing_accounts, subscriptions, quotas` (Phase 7).
 - Knowledge: `knowledge_items, claims, claim_sources, conflicts` (`org_facts` is the seed).

@@ -56,6 +56,22 @@ services:
       postgres:
         condition: service_healthy
 
+  site-router:
+    build:
+      context: ../..
+      dockerfile: infrastructure/docker/api.Dockerfile
+    command: ["pnpm", "site-router"]
+    environment:
+      DATABASE_URL: postgres://deedwell:${POSTGRES_PASSWORD}@postgres:5432/deedwell
+      DATA_DIR: /data
+      SITE_ROUTER_PORT: "8788"
+      SITES_BASE_DOMAIN: ${SITES_BASE_DOMAIN:-sites.deedwell.example}
+    volumes:
+      - appdata:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   caddy:
     image: caddy:2-alpine
     ports:

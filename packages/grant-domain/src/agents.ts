@@ -1,5 +1,3 @@
-import type { Pool } from "pg";
-import { uuidv7 } from "@deedwell/database";
 import { AgentDefinition } from "@deedwell/schemas";
 
 export const requirementsAnalyst: AgentDefinition = AgentDefinition.parse({
@@ -124,17 +122,3 @@ export const ALL_AGENTS = [
   fundingStrategist,
 ];
 
-/** Persist agent definitions as versioned records (platform-level, not tenant data). */
-export async function seedAgentDefinitions(adminPool: Pool): Promise<void> {
-  for (const agent of ALL_AGENTS) {
-    await adminPool.query(
-      `INSERT INTO agent_definitions (id, agent_key, version, display_name, team, role,
-         instructions, allowed_tools, output_schema_ref, budgets)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-       ON CONFLICT (agent_key, version) DO NOTHING`,
-      [uuidv7(), agent.agentKey, agent.version, agent.displayName, agent.team, agent.role,
-       agent.instructions, agent.allowedTools, agent.outputSchemaRef,
-       JSON.stringify({ maxOutputRetries: agent.maxOutputRetries })]
-    );
-  }
-}

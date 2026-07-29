@@ -15,10 +15,18 @@ app.deedwell.example {
 	reverse_proxy api:3000
 }
 
+# Tenant websites (Phase 4): separate origins from the app — preview and live
+# subdomains never share cookies with app.deedwell.example. The Site Router
+# resolves Host → (tenant, site, release) and serves static releases.
+*.preview.deedwell.example, *.sites.deedwell.example {
+	encode gzip
+	reverse_proxy site-router:8788
+}
+
 # Phase 5 (custom domains) enables on-demand TLS gated by the approved-domain
 # registry. The ask endpoint is an indexed lookup — unverified domains are
-# refused certificates. Kept here as the designed configuration; the site
-# router service does not exist yet.
+# refused certificates. Kept here as the designed configuration; the domain
+# verification flow does not exist yet.
 #
 # {
 # 	on_demand_tls {

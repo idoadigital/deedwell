@@ -165,6 +165,7 @@ export const ArtifactType = z.enum([
   "logic_model",
   "review_report",
   "compliance_report",
+  "website_brief",
 ]);
 export type ArtifactType = z.infer<typeof ArtifactType>;
 
@@ -187,6 +188,9 @@ export const AgentDefinition = z.object({
     "budget",
     "logic_model",
     "review_panel",
+    "website_brief",
+    "site_content",
+    "site_patch",
     // "none" marks agents whose work is deterministic system logic (e.g. the
     // eligibility engine) — listed in the directory, never sent to a model.
     "none",
@@ -362,6 +366,127 @@ export const ImportOpportunityInput = z.object({
 export const StartGrantApplicationInput = z.object({
   opportunityId: z.string().uuid(),
   fileId: z.string().uuid(),
+});
+
+// ---------------------------------------------------------------------------
+// Phase 4 — Website builder: structured content model (the CMS data model;
+// chat is an interface to it, never a replacement for it — BRD §9 Stage 8)
+// ---------------------------------------------------------------------------
+
+export const SiteBlock = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("hero"),
+    heading: z.string().min(1).max(200),
+    tagline: z.string().max(400),
+    ctaText: z.string().max(60).nullable(),
+    ctaHref: z.string().max(500).nullable(),
+  }),
+  z.object({
+    kind: z.literal("text"),
+    heading: z.string().max(200).nullable(),
+    body: z.string().min(1).max(8000),
+  }),
+  z.object({
+    kind: z.literal("programs"),
+    heading: z.string().max(200),
+    items: z.array(z.object({ name: z.string().max(200), description: z.string().max(1000) })).min(1).max(12),
+  }),
+  z.object({
+    kind: z.literal("stats"),
+    items: z.array(z.object({ label: z.string().max(120), value: z.string().max(40) })).min(1).max(6),
+  }),
+  z.object({
+    kind: z.literal("cta"),
+    heading: z.string().max(200),
+    buttonText: z.string().min(1).max(60),
+    href: z.string().min(1).max(500),
+  }),
+  z.object({
+    kind: z.literal("form"),
+    formKey: z.string().regex(/^[a-z0-9-]+$/).max(40),
+    heading: z.string().max(200),
+    fields: z
+      .array(
+        z.object({
+          key: z.string().regex(/^[a-z0-9_]+$/).max(40),
+          label: z.string().min(1).max(120),
+          type: z.enum(["text", "email", "textarea"]),
+          required: z.boolean(),
+        })
+      )
+      .min(1)
+      .max(10),
+  }),
+  z.object({
+    kind: z.literal("contact"),
+    email: z.string().max(320).nullable(),
+    phone: z.string().max(60).nullable(),
+    address: z.string().max(400).nullable(),
+  }),
+]);
+export type SiteBlock = z.infer<typeof SiteBlock>;
+
+export const SitePage = z.object({
+  slug: z.string().regex(/^[a-z0-9-]+$/).max(60),
+  title: z.string().min(1).max(200),
+  blocks: z.array(SiteBlock).min(1).max(20),
+  seoDescription: z.string().max(300),
+});
+export type SitePage = z.infer<typeof SitePage>;
+
+export const SITE_PALETTES = ["forest", "ocean", "slate", "sunrise"] as const;
+
+export const SiteTheme = z.object({
+  palette: z.enum(SITE_PALETTES),
+  headingFont: z.enum(["serif", "sans"]),
+});
+export type SiteTheme = z.infer<typeof SiteTheme>;
+
+/** Digital Strategist output contract. */
+export const WebsiteBriefOutput = z.object({
+  objectives: z.array(z.string().max(300)).min(1).max(8),
+  audiences: z.array(z.string().max(200)).min(1).max(8),
+  tone: z.string().max(300),
+  sitemap: z
+    .array(z.object({ slug: z.string().regex(/^[a-z0-9-]+$/), title: z.string().max(200), purpose: z.string().max(300) }))
+    .min(1)
+    .max(10),
+  theme: SiteTheme,
+});
+export type WebsiteBriefOutput = z.infer<typeof WebsiteBriefOutput>;
+
+/** Website Copywriter output contract. */
+export const SiteContentOutput = z.object({
+  pages: z.array(SitePage).min(1).max(10),
+  placeholders: z.array(z.string().max(300)).max(20),
+});
+export type SiteContentOutput = z.infer<typeof SiteContentOutput>;
+
+/** Conversational-edit contract: a proposed patch, or an honest inability. */
+export const SitePatchOutput = z.object({
+  applied: z.boolean(),
+  reason: z.string().max(500).nullable(),
+  changeSummary: z.string().max(500),
+  pages: z.array(SitePage).min(1).max(10),
+});
+export type SitePatchOutput = z.infer<typeof SitePatchOutput>;
+
+export const CreateWebsiteInput = z.object({
+  siteName: z.string().min(2).max(120),
+  slug: z
+    .string()
+    .min(3)
+    .max(50)
+    .regex(/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/),
+  donateUrl: z.string().url().max(500).nullable().optional(),
+});
+
+export const WebsiteUpdateInput = z.object({
+  instruction: z.string().min(3).max(1000),
+});
+
+export const RollbackInput = z.object({
+  releaseId: z.string().uuid(),
 });
 
 export const RecordOutcomeInput = z.object({

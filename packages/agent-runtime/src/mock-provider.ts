@@ -1,4 +1,5 @@
 import type { ModelProvider, ModelRequest, ModelResponse } from "./index.js";
+import { siteContent, sitePatch, websiteBrief } from "./mock-website.js";
 import type {
   BudgetOutput,
   ExtractedRequirement,
@@ -30,6 +31,9 @@ export class MockModelProvider implements ModelProvider {
       budget: buildBudget,
       logic_model: buildLogicModel,
       review_panel: reviewPanel,
+      website_brief: websiteBrief,
+      site_content: siteContent,
+      site_patch: sitePatch,
     };
     const text = JSON.stringify(generators[request.outputSchemaRef](request));
     const inputChars =

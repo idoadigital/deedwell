@@ -12,8 +12,9 @@ import { ApprovalsView } from "./views/Approvals";
 import { WorkspaceView } from "./views/Workspace";
 import { GrantsView } from "./views/Grants";
 import { PassportView } from "./views/Passport";
+import { WebsitesView } from "./views/Websites";
 
-type NavId = "home" | "projects" | "grants" | "passport" | "agents" | "approvals";
+type NavId = "home" | "projects" | "grants" | "passport" | "website" | "agents" | "approvals";
 
 const ORG_KEY = "deedwell.org";
 
@@ -120,6 +121,7 @@ export default function App() {
     { id: "home", icon: "home", label: "Home" },
     { id: "projects", icon: "folder", label: "Projects" },
     { id: "grants", icon: "file-text", label: "Grants" },
+    { id: "website", icon: "columns", label: "Website" },
     { id: "agents", icon: "users", label: "AI Team" },
     { id: "approvals", icon: "check-circle", label: "Approvals", badge: pendingApprovals.length },
   ];
@@ -212,6 +214,15 @@ export default function App() {
           />
         ) : nav === "passport" ? (
           <PassportView org={org} onBack={() => setNav("grants")} />
+        ) : nav === "website" ? (
+          <WebsitesView
+            org={org}
+            refreshTick={refreshTick}
+            onOpenProject={(projectId) => {
+              const project = projects.find((p) => p.id === projectId);
+              if (project) openProject(project);
+            }}
+          />
         ) : nav === "agents" ? (
           <AgentsView />
         ) : (

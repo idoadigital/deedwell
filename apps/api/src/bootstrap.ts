@@ -5,18 +5,27 @@ import {
   LocalFsStorage,
   type StorageAdapter,
 } from "@deedwell/database";
-import { createModelProvider, type ModelProvider } from "@deedwell/agent-runtime";
+import {
+  createModelProvider,
+  seedAgentDefinitions,
+  type ModelProvider,
+} from "@deedwell/agent-runtime";
 import { ToolGateway } from "@deedwell/tools";
 import { PgWorkflowEngine } from "@deedwell/workflows";
 import {
+  ALL_AGENTS,
   buildGrantFullWorkflow,
   buildGrantSliceWorkflow,
   createGrantSource,
   registerGrantTools,
-  seedAgentDefinitions,
   type GrantServices,
   type GrantSourceProvider,
 } from "@deedwell/grant-domain";
+import {
+  buildWebsiteBuildWorkflow,
+  buildWebsiteUpdateWorkflow,
+  WEBSITE_AGENTS,
+} from "@deedwell/website-domain";
 
 export interface Deps {
   adminPool: Pool;
@@ -52,8 +61,10 @@ export async function createDeps(overrides: Partial<{
   );
   engine.register(buildGrantSliceWorkflow());
   engine.register(buildGrantFullWorkflow());
+  engine.register(buildWebsiteBuildWorkflow());
+  engine.register(buildWebsiteUpdateWorkflow());
 
-  await seedAgentDefinitions(adminPool);
+  await seedAgentDefinitions(adminPool, [...ALL_AGENTS, ...WEBSITE_AGENTS]);
   return {
     adminPool,
     appPool,

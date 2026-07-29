@@ -98,7 +98,10 @@ export function registerGrantRoutes(app: FastifyInstance, ctx: AppContext): void
     return ctx.inOrg(req, async (client) => {
       const run = await client.query(
         `SELECT id, definition, definition_version, status, current_step, steps_used,
-                step_budget, last_error, state->'waiting' AS waiting, created_at, updated_at
+                step_budget, last_error, state->'waiting' AS waiting,
+                state->'applied' AS applied, state->'reason' AS reason,
+                state->'changeSummary' AS change_summary, state->'published' AS published,
+                created_at, updated_at
          FROM workflow_runs WHERE id = $1`,
         [runId]
       );

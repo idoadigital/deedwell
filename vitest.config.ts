@@ -14,6 +14,7 @@ export default defineConfig({
       "@deedwell/tools": pkg("tools"),
       "@deedwell/workflows": pkg("workflows"),
       "@deedwell/grant-domain": pkg("grant-domain"),
+      "@deedwell/website-domain": pkg("website-domain"),
       "@deedwell/observability": pkg("observability"),
     },
   },

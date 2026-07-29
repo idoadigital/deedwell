@@ -19,6 +19,7 @@ const TYPE_LABEL: Record<string, string> = {
   logic_model: "Logic model",
   review_report: "Review",
   compliance_report: "Checks",
+  website_brief: "Brief",
 };
 
 export function ArtifactPanel({ org, detail }: { org: Organization; detail: RunDetail | null }) {
@@ -162,6 +163,9 @@ export function ArtifactPanel({ org, detail }: { org: Organization; detail: RunD
             )}
             {artifact.artifact.type === "compliance_report" && (
               <ChecksView content={selectedVersion.content} />
+            )}
+            {artifact.artifact.type === "website_brief" && (
+              <BriefView content={selectedVersion.content} />
             )}
             <p className="faint mt">
               v{selectedVersion.version} · {selectedVersion.change_summary} ·{" "}
@@ -379,6 +383,31 @@ function ReviewView({ content }: { content: Record<string, unknown> }) {
           <h3 className="mt">Revision recommendations</h3>
           <ul>{recommendations.map((r, i) => <li key={i} className="muted">{r}</li>)}</ul>
         </>
+      )}
+    </div>
+  );
+}
+
+function BriefView({ content }: { content: Record<string, unknown> }) {
+  const sitemap = (content.sitemap ?? []) as Array<{ slug: string; title: string; purpose: string }>;
+  const theme = content.theme as { palette?: string; headingFont?: string } | undefined;
+  return (
+    <div className="prose">
+      <h3>Objectives</h3>
+      <ul>{((content.objectives ?? []) as string[]).map((o, i) => <li key={i}>{o}</li>)}</ul>
+      <h3>Audiences</h3>
+      <ul>{((content.audiences ?? []) as string[]).map((a, i) => <li key={i}>{a}</li>)}</ul>
+      <h3>Tone</h3>
+      <p className="muted">{String(content.tone ?? "")}</p>
+      <h3>Sitemap</h3>
+      {sitemap.map((s) => (
+        <div key={s.slug} className="claim ok">
+          <strong>/{s.slug === "home" ? "" : s.slug}</strong> — {s.title}
+          <div className="faint">{s.purpose}</div>
+        </div>
+      ))}
+      {theme && (
+        <p className="faint">Theme: {theme.palette} palette · {theme.headingFont} headings</p>
       )}
     </div>
   );

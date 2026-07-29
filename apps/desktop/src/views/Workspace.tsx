@@ -92,6 +92,31 @@ const STEP_NARRATION: Record<string, { who: string; avatar: string; text: string
     avatar: "D",
     text: "Assembled the approved application package with budget CSV.",
   },
+  intake_brief: {
+    who: "Theo · Digital Strategist",
+    avatar: "TH",
+    text: "Produced the website brief: objectives, audiences, sitemap, and theme.",
+  },
+  generate_content: {
+    who: "Mara · Website Copywriter",
+    avatar: "MR",
+    text: "Wrote the page copy from approved facts, marking placeholders where facts are missing.",
+  },
+  apply_patch: {
+    who: "Kenji · Website Developer",
+    avatar: "KE",
+    text: "Translated the change request into a patch against the structured page model.",
+  },
+  build_release: {
+    who: "QA & Deployment",
+    avatar: "QA",
+    text: "Built the static release and ran SEO and accessibility checks.",
+  },
+  publish_gate: {
+    who: "Deedwell",
+    avatar: "D",
+    text: "Recorded your publish decision.",
+  },
 };
 
 export function WorkspaceView({
@@ -148,7 +173,12 @@ export function WorkspaceView({
         <div className="timeline-pane">
           <div className="timeline-scroll" ref={scrollRef}>
             {error && <p className="error-text" role="alert">{error}</p>}
-            {!latestRun && <IntakeCard org={org} project={project} refresh={refresh} />}
+            {!latestRun &&
+              (project.type === "website" ? (
+                <WebsiteIntakeCard org={org} project={project} refresh={refresh} />
+              ) : (
+                <IntakeCard org={org} project={project} refresh={refresh} />
+              ))}
             {messages.map((m) => (
               <div className="msg" key={m.key}>
                 <span className={`avatar ${m.tone}`} aria-hidden="true">{m.avatar}</span>
@@ -376,6 +406,11 @@ const APPROVAL_PRESENTATION: Record<
     text: "The full application passed internal review and compliance checks. Approve to export the final package.",
     yes: "Approve & export package", no: "Send back for redrafting",
   },
+  publish_site: {
+    who: "QA & Deployment", avatar: "QA",
+    text: "The release is built and previewable. Nothing goes live until you approve publication.",
+    yes: "Publish site", no: "Don't publish",
+  },
 };
 
 function ApprovalCard({
@@ -402,6 +437,8 @@ function ApprovalCard({
     rationale?: string;
     dimensions?: Array<{ label: string; score: number; note: string }>;
     reviewScore?: string;
+    previewPath?: string;
+    version?: number;
   };
 
   async function decide(decision: "approved" | "rejected") {
@@ -447,6 +484,15 @@ function ApprovalCard({
           )}
           {payload.reviewScore && (
             <p className="muted" style={{ fontSize: 13 }}>Internal review panel score: {payload.reviewScore}</p>
+          )}
+          {payload.previewPath && (
+            <p style={{ marginBottom: 8 }}>
+              <a href={`${api.SITE_ROUTER_URL}${payload.previewPath}`} target="_blank" rel="noreferrer">
+                <button type="button" className="ghost">
+                  Open preview{payload.version ? ` (v${payload.version})` : ""} ↗
+                </button>
+              </a>
+            </p>
           )}
           {(approval.payload.warnings?.length ?? 0) > 0 && (
             <div className="msg-card warn" style={{ marginTop: 0 }}>
@@ -597,6 +643,100 @@ function IntakeCard({
           </form>
         ) : (
           <p className="faint">Viewers can follow work here; starting workflows requires the member role.</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function WebsiteIntakeCard({
+  org,
+  project,
+  refresh,
+}: {
+  org: Organization;
+  project: Project;
+  refresh: () => void;
+}) {
+  const [siteName, setSiteName] = useState("");
+  const [slug, setSlug] = useState("");
+  const [donateUrl, setDonateUrl] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const canStart = roleAtLeast(org.role, "member");
+
+  async function start(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      await api.createWebsite(org.id, project.id, {
+        siteName,
+        slug,
+        donateUrl: donateUrl || null,
+      });
+      refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not start the website build");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="msg">
+      <span className="avatar system" aria-hidden="true">D</span>
+      <div className="msg-body">
+        <div className="msg-head"><span className="who">Deedwell</span></div>
+        <div className="msg-text">
+          The Website Team will draft a brief, write pages from your organization&rsquo;s approved
+          facts, and build a preview. Nothing goes live without your approval.
+        </div>
+        {canStart ? (
+          <form className="msg-card" onSubmit={start}>
+            <div className="grid-2">
+              <div className="field">
+                <label htmlFor="site-name">Site name</label>
+                <input
+                  id="site-name"
+                  required
+                  value={siteName}
+                  onChange={(e) => {
+                    setSiteName(e.target.value);
+                    setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""));
+                  }}
+                />
+              </div>
+              <div className="field">
+                <label htmlFor="site-slug">Web address</label>
+                <input
+                  id="site-slug"
+                  required
+                  minLength={3}
+                  pattern="[a-z0-9]([a-z0-9-]*[a-z0-9])?"
+                  value={slug}
+                  onChange={(e) => setSlug(e.target.value)}
+                />
+                <p className="faint" style={{ marginTop: 3 }}>{slug || "your-name"}.deedwell.app</p>
+              </div>
+            </div>
+            <div className="field">
+              <label htmlFor="site-donate">Donation link (optional)</label>
+              <input
+                id="site-donate"
+                type="url"
+                placeholder="https://…"
+                value={donateUrl}
+                onChange={(e) => setDonateUrl(e.target.value)}
+              />
+            </div>
+            {error && <p className="error-text" role="alert">{error}</p>}
+            <button className="primary" disabled={busy}>
+              {busy ? "Starting…" : "Build my website"}
+            </button>
+          </form>
+        ) : (
+          <p className="faint">Starting a website build requires the member role.</p>
         )}
       </div>
     </div>

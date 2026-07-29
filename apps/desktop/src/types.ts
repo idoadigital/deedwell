@@ -72,7 +72,8 @@ export interface ArtifactSummary {
     | "budget"
     | "logic_model"
     | "review_report"
-    | "compliance_report";
+    | "compliance_report"
+    | "website_brief";
   title: string;
   current_version: number;
   updated_at: string;
@@ -204,6 +205,58 @@ export interface ApplicationRow {
   deadline: string | null;
   outcome: string | null;
   award_amount: string | null;
+}
+
+// ---- Phase 4: websites ----
+
+export interface SiteRow {
+  id: string;
+  project_id: string;
+  project_name: string;
+  slug: string;
+  name: string;
+  status: "draft" | "preview" | "published";
+  preview_version: number | null;
+  live_version: number | null;
+  submissions: number;
+  created_at: string;
+}
+
+export interface SiteCheckRow {
+  name: string;
+  page: string | null;
+  pass: boolean;
+  detail: string;
+}
+
+export interface SiteReleaseRow {
+  id: string;
+  version: number;
+  status: "built" | "published" | "superseded";
+  checks: SiteCheckRow[];
+  published_at: string | null;
+  created_at: string;
+}
+
+export interface SiteDetail {
+  site: {
+    id: string;
+    project_id: string;
+    slug: string;
+    name: string;
+    status: string;
+    preview_release_id: string | null;
+    active_release_id: string | null;
+  };
+  pages: Array<{ slug: string; title: string; order_idx: number }>;
+  releases: SiteReleaseRow[];
+}
+
+export interface SubmissionRow {
+  id: string;
+  form_key: string;
+  payload: Record<string, string>;
+  created_at: string;
 }
 
 export interface WorkflowEvent {

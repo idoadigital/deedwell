@@ -6,11 +6,15 @@ import {
   ReviewPanelOutput,
   SectionDraftOutput,
   SectionPlanOutput,
+  SiteContentOutput,
+  SitePatchOutput,
+  WebsiteBriefOutput,
   type AgentDefinition,
 } from "@deedwell/schemas";
 import { MockModelProvider } from "./mock-provider.js";
 
 export { MockModelProvider } from "./mock-provider.js";
+export { seedAgentDefinitions } from "./seed.js";
 
 // ---------------------------------------------------------------------------
 // Provider abstraction (ADR-0003). Business logic never imports a vendor SDK.
@@ -32,7 +36,10 @@ export interface ModelRequest {
     | "section_plan"
     | "budget"
     | "logic_model"
-    | "review_panel";
+    | "review_panel"
+    | "website_brief"
+    | "site_content"
+    | "site_patch";
 }
 
 export interface ModelResponse {
@@ -68,6 +75,9 @@ const OUTPUT_SCHEMAS: Record<ModelRequest["outputSchemaRef"], z.ZodTypeAny> = {
   budget: BudgetOutput,
   logic_model: LogicModelOutput,
   review_panel: ReviewPanelOutput,
+  website_brief: WebsiteBriefOutput,
+  site_content: SiteContentOutput,
+  site_patch: SitePatchOutput,
 };
 
 /**

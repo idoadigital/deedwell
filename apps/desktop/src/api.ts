@@ -1,6 +1,9 @@
 import type {
   AgentInfo,
   ApplicationRow,
+  SiteDetail,
+  SiteRow,
+  SubmissionRow,
   Approval,
   ArtifactDetail,
   OpportunityDetail,
@@ -204,6 +207,38 @@ export const startGrantApplication = (
 
 export const listApplications = (orgId: string) =>
   call<{ applications: ApplicationRow[] }>("GET", `/v1/orgs/${orgId}/applications`);
+
+// ---- Phase 4: websites ----------------------------------------------------
+
+export const SITE_ROUTER_URL: string =
+  (import.meta as { env?: Record<string, string> }).env?.VITE_SITE_ROUTER_URL ??
+  "http://localhost:8788";
+
+export const createWebsite = (
+  orgId: string,
+  projectId: string,
+  input: { siteName: string; slug: string; donateUrl?: string | null }
+) =>
+  call<{ siteId: string; runId: string }>(
+    "POST",
+    `/v1/orgs/${orgId}/projects/${projectId}/website`,
+    input
+  );
+
+export const listSites = (orgId: string) =>
+  call<{ sites: SiteRow[] }>("GET", `/v1/orgs/${orgId}/sites`);
+
+export const getSite = (orgId: string, siteId: string) =>
+  call<SiteDetail>("GET", `/v1/orgs/${orgId}/sites/${siteId}`);
+
+export const updateSite = (orgId: string, siteId: string, instruction: string) =>
+  call<{ runId: string }>("POST", `/v1/orgs/${orgId}/sites/${siteId}/update`, { instruction });
+
+export const rollbackSite = (orgId: string, siteId: string, releaseId: string) =>
+  call<{ ok: true }>("POST", `/v1/orgs/${orgId}/sites/${siteId}/rollback`, { releaseId });
+
+export const listSubmissions = (orgId: string, siteId: string) =>
+  call<{ submissions: SubmissionRow[] }>("GET", `/v1/orgs/${orgId}/sites/${siteId}/submissions`);
 
 export const recordOutcome = (
   orgId: string,

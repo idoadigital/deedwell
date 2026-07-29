@@ -9,6 +9,7 @@ import type { Deps } from "./bootstrap.js";
 import { registerCoreRoutes } from "./routes-core.js";
 import { registerGrantRoutes } from "./routes-grant.js";
 import { registerGrantFullRoutes } from "./routes-grants-full.js";
+import { registerWebsiteRoutes } from "./routes-website.js";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -114,5 +115,6 @@ export function buildApp(deps: Deps): FastifyInstance {
   registerCoreRoutes(app, ctx);
   registerGrantRoutes(app, ctx);
   registerGrantFullRoutes(app, ctx);
+  registerWebsiteRoutes(app, ctx);
   return app;
 }

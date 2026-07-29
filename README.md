@@ -2,9 +2,9 @@
 
 AI workforce and operating workspace for nonprofit organizations.
 
-This repository contains **Phases 0–3** of the Deedwell platform: the tenant-isolated,
+This repository contains **Phases 0–4** of the Deedwell platform: the tenant-isolated,
 RLS-enforced core with a durable workflow engine and tool-gated agent runtime (Phase 0), the
-Tauri desktop workspace (Phase 1), the original vertical slice (Phase 2), and the **full grant
+Tauri desktop workspace (Phase 1), the original vertical slice (Phase 2), the **full grant
 workspace** (Phase 3) —
 
 > discover an opportunity (live Grants.gov search) or upload its announcement → requirements
@@ -14,6 +14,15 @@ workspace** (Phase 3) —
 > validated line-item budget → logic model → four-persona reviewer panel → deterministic
 > compliance checks → final human approval → exported package (markdown + budget CSV) →
 > outcome tracking (awarded/rejected, amounts, lessons).
+
+— and the **website builder** (Phase 4):
+
+> the Website Team drafts a brief and writes pages from approved facts (placeholders flagged,
+> never invented) → approved-template static build (zero JS, everything escaped, WCAG-checked
+> palettes) → deterministic SEO/accessibility checks → preview on its own origin via the Site
+> Router → human publish approval → immutable releases with one-click rollback →
+> conversational updates as reviewable patches → contact/volunteer forms with tenant-scoped
+> submissions.
 
 Read first: `docs/FIRST_RESPONSE.md` (the BRD §25 analysis), then `docs/ARCHITECTURE.md`,
 `docs/THREAT_MODEL.md`, `docs/DATA_MODEL.md`, and `docs/adr/`.
@@ -32,8 +41,10 @@ Read first: `docs/FIRST_RESPONSE.md` (the BRD §25 analysis), then `docs/ARCHITE
   Installers/code-signing/auto-update are Phase 7.
 - Phase 3 judgment calls are deterministic by design (ADR-0006): the eligibility engine and
   bid/no-bid scoring are rules code the model cannot override. Grants.gov discovery is a real
-  integration; `GRANT_SOURCE=mock` keeps tests hermetic. Website platform (Phase 4–5) and
-  huddles (Phase 6) are **not built** and nothing here pretends they are.
+  integration; `GRANT_SOURCE=mock` keeps tests hermetic.
+- Phase 4 websites (ADR-0007) are static releases from approved templates — no arbitrary code
+  generation, no scripts, strict CSP, separate origins for preview/live. Custom domains + TLS
+  (Phase 5) and huddles (Phase 6) are **not built** and nothing here pretends they are.
 
 ## Getting started
 
@@ -74,13 +85,15 @@ cd apps/desktop && pnpm tauri dev
 ```
 apps/api            Fastify API + worker entries (SSE realtime, approvals, exports)
 apps/desktop        Tauri 2 desktop shell + React workspace SPA (ADR-0005)
+apps/site-router    Public static-site host: Host→release resolution, forms (ADR-0007)
 packages/schemas    zod contracts shared everywhere
 packages/auth       scrypt passwords, hashed session tokens, role hierarchy
 packages/database   pool, migrations + RLS, tenant-scoped tx, hash-chained audit, storage seam
 packages/agent-runtime  ModelProvider abstraction + deterministic mock + runAgentTask
 packages/tools      Tool Gateway (identity, allowlists, validation, audit)
 packages/workflows  durable Postgres workflow engine (ADR-0002)
-packages/grant-domain   Grant Team agents, tools, claim verification, slice workflow
+packages/grant-domain   Grant Team agents, tools, claim verification, workflows
+packages/website-domain Website Team agents, renderer, checks, build/update workflows
 infrastructure/     Docker Compose + Caddy edge (approved-domain TLS gate designed in)
 docs/               BRD analysis, architecture, threat model, data model, ADRs
 tests/              integration + security suites
