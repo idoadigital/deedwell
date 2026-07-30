@@ -20,7 +20,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src 'self' http://localhost:3000 http://178.104.188.229:3001 https://api.deedwell.app; img-src 'self' data:; script-src 'self'"
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src 'self' http://localhost:3000 http://178.104.188.229:3001 https://app.deedwell.org; img-src 'self' data:; script-src 'self'"
     }
   },
   "bundle": {

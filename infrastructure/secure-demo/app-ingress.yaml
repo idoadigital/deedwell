@@ -1,0 +1,47 @@
+# Routes app.deedwell.org (via the existing k3s Traefik on 80/443) to the
+# Deedwell unified origin (Caddy :8080 on the host). Remove with:
+#   kubectl delete -f app-ingress.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: deedwell-app
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: deedwell-app-host
+  namespace: deedwell-app
+spec:
+  ports:
+    - port: 8080
+      targetPort: 8080
+---
+apiVersion: v1
+kind: Endpoints
+metadata:
+  name: deedwell-app-host
+  namespace: deedwell-app
+subsets:
+  - addresses:
+      - ip: 178.104.188.229
+    ports:
+      - port: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: deedwell-app
+  namespace: deedwell-app
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: app.deedwell.org
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: deedwell-app-host
+                port:
+                  number: 8080
