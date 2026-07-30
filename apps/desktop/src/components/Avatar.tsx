@@ -14,6 +14,18 @@ function hash(key: string): number {
   return [...key].reduce((n, c) => (n * 33 + c.charCodeAt(0)) >>> 0, 5381);
 }
 
+import { useState } from "react";
+
+/** Portrait lookup for the 13 named teammates (bundled, optimized WebP). */
+const PORTRAIT_NAMES = new Set([
+  "maya", "daniel", "amara", "david", "grace", "sophia", "michael",
+  "naomi", "ava", "leo", "noah", "emma", "james",
+]);
+export function portraitFor(name: string | null | undefined): string | null {
+  const first = (name ?? "").split(/[\s—-]/)[0]?.toLowerCase() ?? "";
+  return PORTRAIT_NAMES.has(first) ? `/avatars/${first}.webp` : null;
+}
+
 export function Avatar({
   id,
   name,
@@ -27,6 +39,8 @@ export function Avatar({
   presence?: boolean;
   imageUrl?: string | null;
 }) {
+  const [imgFailed, setImgFailed] = useState(false);
+  const src = !imgFailed ? (imageUrl ?? portraitFor(name)) : null;
   const h = hash(id);
   const skin = SKIN[h % SKIN.length]!;
   const hair = HAIR[(h >> 3) % HAIR.length]!;
@@ -36,8 +50,12 @@ export function Avatar({
 
   return (
     <span className="avatar" style={{ width: size, height: size }} role="img" aria-label={name}>
-      {imageUrl ? (
-        <img src={imageUrl} alt="" width={size} height={size} />
+      {src ? (
+        <img
+          src={src} alt="" width={size} height={size}
+          style={{ objectFit: "cover" }}
+          onError={() => setImgFailed(true)}
+        />
       ) : (
         <svg viewBox="0 0 48 48" width={size} height={size} aria-hidden="true" style={{ borderRadius: "50%", display: "block" }}>
           <circle cx="24" cy="24" r="24" fill={bg} />
