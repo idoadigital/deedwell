@@ -1,10 +1,13 @@
-import { migrate } from "@deedwell/database";
+import { createAdminPool, migrate } from "@deedwell/database";
 import { buildApp } from "./app.js";
 import { createDeps } from "./bootstrap.js";
 
 async function main(): Promise<void> {
+  // Migrate before createDeps — dependency wiring seeds agent definitions.
+  const migratePool = createAdminPool();
+  await migrate(migratePool);
+  await migratePool.end();
   const deps = await createDeps();
-  await migrate(deps.adminPool);
 
   const app = buildApp(deps);
 

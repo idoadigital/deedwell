@@ -24,7 +24,7 @@ describe("workspace API", () => {
     expect(keys).toContain("grant.writer");
     const writer = res.body.agents.find((a: any) => a.agent_key === "grant.writer");
     expect(writer.allowed_tools).toEqual(["fetch_org_facts"]);
-    expect(writer.display_name).toContain("Marcus");
+    expect(writer.display_name).toContain("Sophia");
   });
 
   it("lists org runs with project names and waiting payloads", async () => {

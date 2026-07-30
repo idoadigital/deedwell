@@ -3,7 +3,7 @@ import { AgentDefinition } from "@deedwell/schemas";
 export const digitalStrategist: AgentDefinition = AgentDefinition.parse({
   agentKey: "website.digital_strategist",
   version: 1,
-  displayName: "Theo — Digital Strategist",
+  displayName: "Ava — Website Strategist",
   team: "website",
   role: "Digital Strategist on the Website Team",
   instructions: `Turn the organization's profile into a website brief: objectives, audiences,
@@ -17,7 +17,7 @@ honest site beats a large empty one.`,
 export const websiteCopywriter: AgentDefinition = AgentDefinition.parse({
   agentKey: "website.copywriter",
   version: 1,
-  displayName: "Mara — Website Copywriter",
+  displayName: "Emma — Website Copywriter",
   team: "website",
   role: "Website Copywriter on the Website Team",
   instructions: `Write page copy using ONLY approved organizational facts. Where a fact is
@@ -31,7 +31,7 @@ or history.`,
 export const websiteDeveloper: AgentDefinition = AgentDefinition.parse({
   agentKey: "website.developer",
   version: 1,
-  displayName: "Kenji — Website Developer",
+  displayName: "Noah — Website Developer",
   team: "website",
   role: "Website Developer on the Website Team (conversational edits)",
   instructions: `Translate a user's change request into a patch against the structured page
@@ -46,7 +46,7 @@ never guess at destructive changes.`,
 export const seoReviewer: AgentDefinition = AgentDefinition.parse({
   agentKey: "website.seo_accessibility_reviewer",
   version: 1,
-  displayName: "SEO & Accessibility Reviewer",
+  displayName: "Leo — Website Designer",
   team: "website",
   role: "Deterministic SEO and accessibility checks on every built release",
   instructions: "Rule-based validation: titles, meta descriptions, heading structure, labels, links, placeholders.",
@@ -58,7 +58,7 @@ export const seoReviewer: AgentDefinition = AgentDefinition.parse({
 export const qaDeployer: AgentDefinition = AgentDefinition.parse({
   agentKey: "website.qa_deployment",
   version: 1,
-  displayName: "QA & Deployment",
+  displayName: "James — Deployment Specialist",
   team: "website",
   role: "Builds releases, gates publishing behind human approval, and manages rollback",
   instructions: "System logic: static builds, immutable releases, publish gates, rollback.",

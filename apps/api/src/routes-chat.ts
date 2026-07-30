@@ -1,0 +1,158 @@
+import type { FastifyInstance } from "fastify";
+import { createHash } from "node:crypto";
+import { z } from "zod";
+import { audit, tenantFileKey, uuidv7 } from "@deedwell/database";
+import { PostMessageInput, UploadFileInput } from "@deedwell/schemas";
+import {
+  createProjectChannel,
+  ensureChannels,
+  handleUserMessage,
+  type ChannelRow,
+} from "./assistant.js";
+import { TEAMMATES } from "./teammates.js";
+import { HttpError, type AppContext } from "./app.js";
+
+export function registerChatRoutes(app: FastifyInstance, ctx: AppContext): void {
+  app.get("/v1/orgs/:orgId/channels", async (req) => {
+    ctx.requireRole(req, "viewer");
+    const { rows } = await ctx.inOrg(req, async (client) => {
+      await ensureChannels(client, req.orgId!);
+      return client.query(
+        `SELECT c.id, c.key, c.name, c.kind, c.project_id, c.agent_key, c.starred,
+                p.type AS project_type,
+                (SELECT MAX(created_at) FROM messages m WHERE m.channel_id = c.id) AS last_message_at
+         FROM channels c LEFT JOIN projects p ON p.id = c.project_id
+         ORDER BY c.kind, c.created_at`
+      );
+    });
+    return { channels: rows, teammates: TEAMMATES };
+  });
+
+  app.post("/v1/orgs/:orgId/channels", async (req, reply) => {
+    ctx.requireRole(req, "member");
+    const input = z.object({ name: z.string().min(2).max(80) }).parse(req.body);
+    const result = await ctx.inOrg(req, (client) =>
+      createProjectChannel(client, req.orgId!, req.userId!, input.name, "other")
+    );
+    return reply.status(201).send(result);
+  });
+
+  app.post("/v1/orgs/:orgId/channels/:channelId/star", async (req) => {
+    ctx.requireRole(req, "viewer");
+    const { channelId } = req.params as { channelId: string };
+    const input = z.object({ starred: z.boolean() }).parse(req.body);
+    await ctx.inOrg(req, async (client) => {
+      const { rowCount } = await client.query(
+        "UPDATE channels SET starred = $2 WHERE id = $1", [channelId, input.starred]
+      );
+      if (!rowCount) throw new HttpError(404, "Channel not found");
+    });
+    return { ok: true };
+  });
+
+  app.get("/v1/orgs/:orgId/members", async (req) => {
+    ctx.requireRole(req, "viewer");
+    const { rows } = await ctx.inOrg(req, (client) =>
+      client.query(
+        `SELECT u.id, u.display_name, u.email, m.role
+         FROM organization_memberships m JOIN users u ON u.id = m.user_id
+         ORDER BY u.display_name`
+      )
+    );
+    return { members: rows };
+  });
+
+  // Attach a file inside a conversation. Files land in the channel's project,
+  // or in a shared inbox project for DMs and team channels.
+  app.post("/v1/orgs/:orgId/channels/:channelId/files", async (req, reply) => {
+    ctx.requireRole(req, "member");
+    const { channelId } = req.params as { channelId: string };
+    const input = UploadFileInput.parse(req.body);
+    const content = Buffer.from(input.contentBase64, "base64");
+    if (content.length === 0) throw new HttpError(400, "File is empty");
+    if (content.length > 8_000_000) throw new HttpError(413, "File exceeds the 8 MB limit");
+    const result = await ctx.inOrg(req, async (client) => {
+      const channel = await client.query(
+        "SELECT id, project_id FROM channels WHERE id = $1", [channelId]
+      );
+      if (!channel.rows[0]) throw new HttpError(404, "Channel not found");
+      let projectId: string | null = channel.rows[0].project_id;
+      if (!projectId) {
+        const shared = await client.query(
+          "SELECT id FROM projects WHERE name = 'Shared Files' LIMIT 1"
+        );
+        projectId = shared.rows[0]?.id ?? uuidv7();
+        if (!shared.rows[0]) {
+          await client.query(
+            `INSERT INTO projects (id, tenant_id, name, type, created_by)
+             VALUES ($1,$2,'Shared Files','other',$3)`,
+            [projectId, req.orgId, req.userId]
+          );
+        }
+      }
+      const fileId = uuidv7();
+      const storageKey = tenantFileKey(req.orgId!, fileId, input.filename);
+      await ctx.deps.storage.put(storageKey, content);
+      await client.query(
+        `INSERT INTO files (id, tenant_id, project_id, filename, mime, size_bytes, sha256, storage_key, created_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+        [fileId, req.orgId, projectId, input.filename, input.mime, content.length,
+         createHash("sha256").update(content).digest("hex"), storageKey, req.userId]
+      );
+      await audit(client, {
+        tenantId: req.orgId!, actorUser: req.userId, action: "file.uploaded",
+        entityType: "file", entityId: fileId,
+        metadata: { filename: input.filename, via: "chat" },
+      });
+      return { fileId, filename: input.filename };
+    });
+    return reply.status(201).send(result);
+  });
+
+  app.get("/v1/orgs/:orgId/channels/:channelId/messages", async (req) => {
+    ctx.requireRole(req, "viewer");
+    const { channelId } = req.params as { channelId: string };
+    const { rows } = await ctx.inOrg(req, async (client) => {
+      const channel = await client.query("SELECT id FROM channels WHERE id = $1", [channelId]);
+      if (!channel.rows[0]) throw new HttpError(404, "Channel not found");
+      return client.query(
+        `SELECT m.id, m.author_kind, m.author_user, m.author_agent, u.display_name AS author_name,
+                m.body, m.metadata, m.created_at
+         FROM messages m LEFT JOIN users u ON u.id = m.author_user
+         WHERE m.channel_id = $1 ORDER BY m.created_at ASC LIMIT 300`,
+        [channelId]
+      );
+    });
+    return { messages: rows };
+  });
+
+  app.post("/v1/orgs/:orgId/channels/:channelId/messages", async (req, reply) => {
+    ctx.requireRole(req, "member");
+    const { channelId } = req.params as { channelId: string };
+    const input = PostMessageInput.parse(req.body);
+    const messages = await ctx.inOrg(req, async (client) => {
+      const channel = await client.query(
+        `SELECT c.id, c.key, c.name, c.kind, c.project_id, p.type AS project_type
+         FROM channels c LEFT JOIN projects p ON p.id = c.project_id WHERE c.id = $1`,
+        [channelId]
+      );
+      if (!channel.rows[0]) throw new HttpError(404, "Channel not found");
+      if (input.fileId) {
+        const file = await client.query("SELECT id FROM files WHERE id = $1", [input.fileId]);
+        if (!file.rows[0]) throw new HttpError(404, "Attached file not found");
+      }
+      return handleUserMessage(
+        ctx.deps, client,
+        { tenantId: req.orgId!, userId: req.userId! },
+        channel.rows[0] as ChannelRow,
+        input.body,
+        input.fileId ?? null
+      );
+    });
+    // Wake any live listeners (SSE) in this org.
+    ctx.deps.engine.events.emit("event", {
+      type: "message_created", tenantId: req.orgId, channelId,
+    } as never);
+    return reply.status(201).send({ messages });
+  });
+}

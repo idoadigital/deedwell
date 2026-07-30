@@ -1,101 +1,144 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as api from "./api";
 import { subscribeSSE, type SSESubscription } from "./sse";
-import type { Approval, Organization, Project, RunSummary, WorkflowEvent } from "./types";
+import type {
+  Approval, ChannelInfo, MemberInfo, Organization, Project, RunDetail, RunSummary,
+  SiteRow, TeammateInfo, WorkflowEvent,
+} from "./types";
 import { Icon } from "./components/Icon";
+import { ArtifactPanel } from "./components/ArtifactPanel";
 import { LoginView } from "./views/Login";
 import { OrgSetupView } from "./views/OrgSetup";
-import { HomeView } from "./views/Home";
-import { ProjectsView } from "./views/Projects";
-import { AgentsView } from "./views/Agents";
-import { ApprovalsView } from "./views/Approvals";
-import { WorkspaceView } from "./views/Workspace";
+import { ChatView, agentColor } from "./views/Chat";
 import { GrantsView } from "./views/Grants";
 import { PassportView } from "./views/Passport";
 import { WebsitesView } from "./views/Websites";
-
-type NavId = "home" | "projects" | "grants" | "passport" | "website" | "agents" | "approvals";
+import { ApprovalsView } from "./views/Approvals";
 
 const ORG_KEY = "deedwell.org";
+const SEEN_KEY = "deedwell.seen";
+type Overlay = "grants" | "passport" | "website" | "approvals" | "orgs" | null;
+
+const CHANNEL_DESCRIPTIONS: Record<string, string> = {
+  general: "Team-wide conversation",
+  announcements: "Important updates for everyone",
+  "funding-opportunities": "Grant discovery and prospects",
+  "grant-work": "Active grant collaboration",
+  website: "Everything about your public website",
+  "organization-information": "Facts, documents, and the Funding Passport",
+};
 
 export default function App() {
   const [authed, setAuthed] = useState<boolean>(!!api.getToken());
   const [orgs, setOrgs] = useState<Organization[] | null>(null);
   const [org, setOrg] = useState<Organization | null>(null);
-  const [nav, setNav] = useState<NavId>("home");
-  const [activeProject, setActiveProject] = useState<Project | null>(null);
-  const [projects, setProjects] = useState<Project[]>([]);
+  const [channels, setChannels] = useState<ChannelInfo[]>([]);
+  const [teammates, setTeammates] = useState<TeammateInfo[]>([]);
+  const [members, setMembers] = useState<MemberInfo[]>([]);
   const [runs, setRuns] = useState<RunSummary[]>([]);
+  const [sites, setSites] = useState<SiteRow[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
   const [approvals, setApprovals] = useState<Approval[]>([]);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [sidebarFilter, setSidebarFilter] = useState("");
+  const [overlay, setOverlay] = useState<Overlay>(null);
+  const [wsMenu, setWsMenu] = useState(false);
+  const [profileMenu, setProfileMenu] = useState(false);
+  const [huddleNote, setHuddleNote] = useState(false);
+  const [sidePanel, setSidePanel] = useState<"work" | "site" | null>(null);
+  const [runDetail, setRunDetail] = useState<RunDetail | null>(null);
   const [refreshTick, setRefreshTick] = useState(0);
+  const [seen, setSeen] = useState<Record<string, string>>(() => {
+    try { return JSON.parse(localStorage.getItem(SEEN_KEY) ?? "{}"); } catch { return {}; }
+  });
   const sseRef = useRef<SSESubscription | null>(null);
-
   const refresh = useCallback(() => setRefreshTick((t) => t + 1), []);
 
-  // ---- session bootstrap --------------------------------------------------
+  // ---- session / org bootstrap -------------------------------------------
   useEffect(() => {
-    if (!authed) {
-      setOrgs(null);
-      setOrg(null);
-      return;
-    }
-    api
-      .me()
-      .then(({ organizations }) => {
-        setOrgs(organizations);
-        const savedId = localStorage.getItem(ORG_KEY);
-        const saved = organizations.find((o) => o.id === savedId);
-        if (saved) setOrg(saved);
-        else if (organizations.length === 1) setOrg(organizations[0]!);
-      })
-      .catch(() => setAuthed(!!api.getToken()));
+    if (!authed) { setOrgs(null); setOrg(null); return; }
+    api.me().then(({ organizations }) => {
+      setOrgs(organizations);
+      const saved = organizations.find((o) => o.id === localStorage.getItem(ORG_KEY));
+      if (saved) setOrg(saved);
+      else if (organizations.length === 1) setOrg(organizations[0]!);
+    }).catch(() => setAuthed(!!api.getToken()));
   }, [authed]);
 
-  // ---- org data + realtime ------------------------------------------------
+  // ---- workspace data -----------------------------------------------------
   useEffect(() => {
     if (!org) return;
     let cancelled = false;
-    Promise.all([api.listProjects(org.id), api.listRuns(org.id), api.listApprovals(org.id)])
-      .then(([p, r, a]) => {
-        if (cancelled) return;
-        setProjects(p.projects);
-        setRuns(r.runs);
-        setApprovals(a.approvals);
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
+    Promise.all([
+      api.listChannels(org.id), api.listRuns(org.id), api.listSites(org.id),
+      api.listMembers(org.id), api.listProjects(org.id), api.listApprovals(org.id),
+    ]).then(([c, r, s, m, p, a]) => {
+      if (cancelled) return;
+      setChannels(c.channels);
+      setTeammates(c.teammates);
+      setRuns(r.runs);
+      setSites(s.sites);
+      setMembers(m.members);
+      setProjects(p.projects);
+      setApprovals(a.approvals);
+      // Startup: most recent conversation, else Maya's DM (spec §11).
+      setActiveId((current) => {
+        if (current && c.channels.some((ch) => ch.id === current)) return current;
+        const withMessages = c.channels.filter((ch) => ch.last_message_at);
+        withMessages.sort((a, b) => (b.last_message_at! > a.last_message_at! ? 1 : -1));
+        return withMessages[0]?.id
+          ?? c.channels.find((ch) => ch.key === "dm:core.executive_assistant")?.id
+          ?? c.channels[0]?.id ?? null;
+      });
+    }).catch(() => undefined);
+    return () => { cancelled = true; };
   }, [org, refreshTick]);
 
+  // ---- realtime -----------------------------------------------------------
   useEffect(() => {
     if (!org) return;
     const token = api.getToken();
     if (!token) return;
-    // Live activity stream; a slow poll below covers reconnect gaps.
-    sseRef.current = subscribeSSE(
-      `${api.API_URL}/v1/orgs/${org.id}/events`,
-      token,
-      (data) => {
-        try {
-          const event = JSON.parse(data) as WorkflowEvent;
-          if (event.type === "run_updated") refresh();
-        } catch {
-          /* ignore malformed events */
-        }
-      }
-    );
-    const poll = setInterval(refresh, 8000);
-    return () => {
-      sseRef.current?.close();
-      clearInterval(poll);
-    };
+    sseRef.current = subscribeSSE(`${api.API_URL}/v1/orgs/${org.id}/events`, token, (data) => {
+      try {
+        const event = JSON.parse(data) as WorkflowEvent;
+        if (event.type === "run_updated" || event.type === "message_created") refresh();
+      } catch { /* ignore */ }
+    });
+    const poll = setInterval(refresh, 10000);
+    return () => { sseRef.current?.close(); clearInterval(poll); };
   }, [org, refresh]);
 
-  const pendingApprovals = useMemo(
-    () => approvals.filter((a) => a.status === "pending"),
-    [approvals]
+  // ---- artifact side panel data ------------------------------------------
+  const active = channels.find((c) => c.id === activeId) ?? null;
+  const activeRuns = useMemo(
+    () => (active?.project_id ? runs.filter((r) => r.project_id === active.project_id) : []),
+    [runs, active]
   );
+  const activeSite = useMemo(
+    () => (active?.project_id ? sites.find((s) => s.project_id === active.project_id) ?? null : null),
+    [sites, active]
+  );
+  useEffect(() => {
+    if (sidePanel !== "work" || !org || !activeRuns[0]) { setRunDetail(null); return; }
+    let cancelled = false;
+    api.getRun(org.id, activeRuns[0].id).then((d) => { if (!cancelled) setRunDetail(d); }).catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [sidePanel, org, activeRuns[0]?.id, activeRuns[0]?.updated_at, refreshTick]);
+
+  useEffect(() => { setSidePanel(null); }, [activeId]);
+
+  // ---- unread tracking ----------------------------------------------------
+  useEffect(() => {
+    if (!active?.last_message_at) return;
+    setSeen((prev) => {
+      const next = { ...prev, [active.id]: active.last_message_at! };
+      localStorage.setItem(SEEN_KEY, JSON.stringify(next));
+      return next;
+    });
+  }, [active?.id, active?.last_message_at]);
+  const isUnread = (c: ChannelInfo) =>
+    !!c.last_message_at && c.id !== activeId && (seen[c.id] ?? "") < c.last_message_at;
 
   // ---- gates --------------------------------------------------------------
   if (!authed) return <LoginView onAuthed={() => setAuthed(true)} />;
@@ -104,139 +147,346 @@ export default function App() {
     return (
       <OrgSetupView
         organizations={orgs}
-        onSelect={(o) => {
-          localStorage.setItem(ORG_KEY, o.id);
-          setOrg(o);
-        }}
+        onSelect={(o) => { localStorage.setItem(ORG_KEY, o.id); setOrg(o); }}
         onCreated={() => api.me().then(({ organizations }) => setOrgs(organizations))}
       />
     );
   }
 
-  const openProject = (project: Project) => {
-    setActiveProject(project);
+  const mateMap = new Map(teammates.map((t) => [t.agentKey, t]));
+  const filter = sidebarFilter.trim().toLowerCase();
+  const match = (label: string) => !filter || label.toLowerCase().includes(filter);
+  const starred = channels.filter((c) => c.starred && match(c.name));
+  const roomChannels = channels.filter((c) => c.kind !== "dm" && !c.starred && match(c.name));
+  const dms = channels.filter((c) => c.kind === "dm" && !c.starred);
+  const recents = [...channels]
+    .filter((c) => c.last_message_at && match(c.name))
+    .sort((a, b) => (b.last_message_at! > a.last_message_at! ? 1 : -1))
+    .slice(0, 5);
+
+  const openChannel = (id: string) => { setActiveId(id); setOverlay(null); };
+  const openProjectChannel = (projectId: string) => {
+    const ch = channels.find((c) => c.project_id === projectId);
+    if (ch) openChannel(ch.id);
+  };
+  const toggleStar = async (c: ChannelInfo) => {
+    await api.starChannel(org.id, c.id, !c.starred).catch(() => undefined);
+    refresh();
+  };
+  const newConversation = async () => {
+    const name = window.prompt("Name the new channel (it becomes a shared project room):");
+    if (!name?.trim()) return;
+    const created = await api.createChannel(org.id, name.trim());
+    refresh();
+    setActiveId(created.channelId);
   };
 
-  const navItems: Array<{ id: NavId; icon: string; label: string; badge?: number }> = [
-    { id: "home", icon: "home", label: "Home" },
-    { id: "projects", icon: "folder", label: "Projects" },
-    { id: "grants", icon: "file-text", label: "Grants" },
-    { id: "website", icon: "columns", label: "Website" },
-    { id: "agents", icon: "users", label: "AI Team" },
-    { id: "approvals", icon: "check-circle", label: "Approvals", badge: pendingApprovals.length },
-  ];
+  const latestRunStatus = activeRuns[0]?.status;
 
   return (
     <div className="shell">
-      <nav className="sidebar" aria-label="Primary">
-        <div className="brand">
-          <span className="brand-mark">D</span> Deedwell
-        </div>
-        <div className="org-badge">
-          Organization
-          <strong>{org.name}</strong>
-        </div>
-        {navItems.map((item) => (
+      {/* ---- workspace rail (spec §2) ---- */}
+      <nav className="rail" aria-label="Workspaces">
+        <div className="logo" title="Deedwell">D</div>
+        {orgs.map((o) => (
           <button
-            key={item.id}
-            className={`nav-item ${nav === item.id && !activeProject ? "active" : ""}`}
-            onClick={() => {
-              setNav(item.id);
-              setActiveProject(null);
-            }}
+            key={o.id}
+            className={`org-avatar ${o.id === org.id ? "active" : ""}`}
+            title={o.name}
+            onClick={() => { localStorage.setItem(ORG_KEY, o.id); setOrg(o); setActiveId(null); }}
           >
-            <Icon name={item.icon} />
-            {item.label}
-            {item.badge ? <span className="badge">{item.badge}</span> : null}
+            {o.name.slice(0, 2).toUpperCase()}
           </button>
         ))}
-        {activeProject && (
-          <button className="nav-item active" style={{ marginTop: 8 }}>
-            <Icon name="file-text" />
-            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              {activeProject.name}
-            </span>
-          </button>
-        )}
+        <button className="org-avatar add" title="Add or join a workspace" onClick={() => setOverlay("orgs")}>+</button>
         <div className="spacer" />
-        <button
-          className="nav-item"
-          onClick={() => {
-            localStorage.removeItem(ORG_KEY);
-            setOrg(null);
-            setActiveProject(null);
-          }}
-        >
-          <Icon name="columns" /> Switch organization
-        </button>
-        <button
-          className="nav-item"
-          onClick={() => {
-            void api.logout().catch(() => undefined);
-            api.setToken(null);
-            setAuthed(false);
-          }}
-        >
-          <Icon name="log-out" /> Sign out
-        </button>
+        <div style={{ position: "relative" }}>
+          <button className="profile" title="You" onClick={() => setProfileMenu((v) => !v)}>
+            U<span className="presence" />
+          </button>
+          {profileMenu && (
+            <div className="menu" style={{ left: 50, bottom: 0 }}>
+              <button onClick={() => { setProfileMenu(false); setOverlay("orgs"); }}>Switch workspace</button>
+              <div className="sep" />
+              <button onClick={() => {
+                void api.logout().catch(() => undefined);
+                api.setToken(null); setAuthed(false);
+              }}>Sign out</button>
+            </div>
+          )}
+        </div>
       </nav>
 
-      <div className="main">
-        {activeProject ? (
-          <WorkspaceView
-            org={org}
-            project={activeProject}
-            runs={runs.filter((r) => r.project_id === activeProject.id)}
-            onBack={() => setActiveProject(null)}
-            refresh={refresh}
+      {/* ---- conversation sidebar (spec §3) ---- */}
+      <nav className="convo-sidebar" aria-label="Conversations">
+        <div className="ws-head">
+          <div style={{ position: "relative", flex: 1, minWidth: 0 }}>
+            <button className="ws-name" onClick={() => setWsMenu((v) => !v)} style={{ background: "none", border: "none", width: "100%" }}>
+              <span>{org.name}</span> ▾
+            </button>
+            {wsMenu && (
+              <div className="menu" style={{ top: 34, left: 0 }}>
+                <button onClick={() => { setWsMenu(false); setOverlay("passport"); }}>Organization information</button>
+                <button onClick={() => { setWsMenu(false); setOverlay("grants"); }}>Grants overview</button>
+                <button onClick={() => { setWsMenu(false); setOverlay("website"); }}>Website overview</button>
+                <button onClick={() => { setWsMenu(false); setOverlay("approvals"); }}>Approvals</button>
+                <div className="sep" />
+                <button onClick={() => setWsMenu(false)}>Members ({members.length})</button>
+              </div>
+            )}
+          </div>
+          <button className="icon-btn" title="New conversation" aria-label="New conversation" onClick={newConversation}>
+            <Icon name="plus" size={15} />
+          </button>
+          <button className="icon-btn" title="Start a huddle" aria-label="Start a huddle" onClick={() => setHuddleNote(true)}>
+            <Icon name="activity" size={15} />
+          </button>
+        </div>
+        <div className="convo-search">
+          <input
+            aria-label="Search conversations" placeholder="Search"
+            value={sidebarFilter} onChange={(e) => setSidebarFilter(e.target.value)}
           />
-        ) : nav === "home" ? (
-          <HomeView
-            org={org}
-            projects={projects}
-            runs={runs}
-            pendingApprovals={pendingApprovals}
-            onOpenProject={openProject}
-            onGoProjects={() => setNav("projects")}
-            onGoApprovals={() => setNav("approvals")}
-          />
-        ) : nav === "projects" ? (
-          <ProjectsView org={org} projects={projects} runs={runs} onOpen={openProject} refresh={refresh} />
-        ) : nav === "grants" ? (
-          <GrantsView
-            org={org}
-            projects={projects}
-            onOpenProject={(projectId) => {
-              const project = projects.find((p) => p.id === projectId);
-              if (project) openProject(project);
-            }}
-            onOpenPassport={() => setNav("passport")}
-          />
-        ) : nav === "passport" ? (
-          <PassportView org={org} onBack={() => setNav("grants")} />
-        ) : nav === "website" ? (
-          <WebsitesView
-            org={org}
-            refreshTick={refreshTick}
-            onOpenProject={(projectId) => {
-              const project = projects.find((p) => p.id === projectId);
-              if (project) openProject(project);
-            }}
-          />
-        ) : nav === "agents" ? (
-          <AgentsView />
+        </div>
+        <div className="convo-scroll">
+          {starred.length > 0 && (
+            <Section title="Starred">
+              {starred.map((c) => (
+                <ChannelItem key={c.id} c={c} mateMap={mateMap} active={activeId === c.id}
+                  unread={isUnread(c)} onOpen={openChannel} onStar={toggleStar} />
+              ))}
+            </Section>
+          )}
+          <Section title="Channels">
+            {roomChannels.map((c) => (
+              <ChannelItem key={c.id} c={c} mateMap={mateMap} active={activeId === c.id}
+                unread={isUnread(c)} onOpen={openChannel} onStar={toggleStar} />
+            ))}
+          </Section>
+          <Section title="AI Teammates">
+            {teammates.filter((t) => match(t.name) || match(t.role)).map((t) => {
+              const c = dms.find((d) => d.agent_key === t.agentKey)
+                ?? channels.find((d) => d.agent_key === t.agentKey);
+              if (!c) return null;
+              return (
+                <ChannelItem key={c.id} c={c} mateMap={mateMap} active={activeId === c.id}
+                  unread={isUnread(c)} onOpen={openChannel} onStar={toggleStar} />
+              );
+            })}
+          </Section>
+          <Section title="People">
+            {members.filter((m) => match(m.display_name)).map((m) => (
+              <div key={m.id} className="convo-item" title="Direct messages between people arrive in a later phase" style={{ cursor: "default" }}>
+                <span className="mini-avatar" style={{ background: "var(--info-dim)", color: "var(--info)" }}>
+                  {m.display_name.slice(0, 2).toUpperCase()}
+                </span>
+                <span className="label">{m.display_name}<span className="sub">{m.role}</span></span>
+              </div>
+            ))}
+          </Section>
+          {recents.length > 0 && (
+            <Section title="Recent">
+              {recents.map((c) => (
+                <ChannelItem key={`r-${c.id}`} c={c} mateMap={mateMap} active={activeId === c.id}
+                  unread={isUnread(c)} onOpen={openChannel} onStar={toggleStar} />
+              ))}
+            </Section>
+          )}
+        </div>
+      </nav>
+
+      {/* ---- active conversation (spec §4) ---- */}
+      <div className="chat-main">
+        {active ? (
+          <>
+            <header className="chat-head">
+              {active.kind === "dm" ? (
+                <>
+                  <span className="mini-avatar" style={{ background: agentColor(active.agent_key ?? ""), width: 28, height: 28, fontSize: 12 }}>
+                    {(mateMap.get(active.agent_key ?? "")?.name ?? active.name).slice(0, 2).toUpperCase()}
+                    <span className="presence" />
+                  </span>
+                  <div>
+                    <div className="title">{mateMap.get(active.agent_key ?? "")?.name ?? active.name}</div>
+                    <div className="desc">{mateMap.get(active.agent_key ?? "")?.role ?? "AI teammate"} · online</div>
+                  </div>
+                </>
+              ) : (
+                <div>
+                  <div className="title"># {active.name}</div>
+                  <div className="desc">
+                    {CHANNEL_DESCRIPTIONS[active.key] ??
+                      (active.kind === "project" ? "Project channel — the team works here" : "Shared channel")}
+                    {latestRunStatus ? ` · ${latestRunStatus.replace(/_/g, " ")}` : ""}
+                  </div>
+                </div>
+              )}
+              <div className="chat-tabs">
+                <button className={`chat-tab ${sidePanel === null ? "active" : ""}`} onClick={() => setSidePanel(null)}>
+                  Messages
+                </button>
+                {activeRuns.length > 0 && (
+                  <button className={`chat-tab ${sidePanel === "work" ? "active" : ""}`} onClick={() => setSidePanel("work")}>
+                    Work & artifacts
+                  </button>
+                )}
+                {activeSite && (
+                  <button className={`chat-tab ${sidePanel === "site" ? "active" : ""}`} onClick={() => setSidePanel("site")}>
+                    Live website
+                  </button>
+                )}
+                <button className="chat-tab" title="Huddles arrive in Phase 6" onClick={() => setHuddleNote(true)}>
+                  Huddle
+                </button>
+              </div>
+            </header>
+            <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
+              <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+                <ChatView
+                  org={org} channel={active} teammates={mateMap}
+                  refreshTick={refreshTick} refresh={refresh}
+                  onOpenChannel={openChannel}
+                  onOpenWork={() => setSidePanel("work")}
+                />
+              </div>
+              {/* ---- contextual artifact panel (spec §6) ---- */}
+              {sidePanel && (
+                <aside className="artifact-side" aria-label="Artifacts">
+                  <div className="artifact-side-head">
+                    <strong style={{ fontSize: 13 }}>
+                      {sidePanel === "site" ? "Live website" : "Work & artifacts"}
+                    </strong>
+                    {sidePanel === "site" && activeSite && (
+                      <a
+                        className="faint"
+                        href={`${api.SITE_ROUTER_URL}/${activeSite.live_version ? "live" : "preview"}/${activeSite.slug}/`}
+                        target="_blank" rel="noreferrer"
+                      >
+                        open in browser ↗
+                      </a>
+                    )}
+                    <button className="icon-btn" style={{ marginLeft: "auto" }} aria-label="Close panel" onClick={() => setSidePanel(null)}>
+                      <Icon name="x" size={15} />
+                    </button>
+                  </div>
+                  {sidePanel === "work" ? (
+                    <ArtifactPanel org={org} detail={runDetail} />
+                  ) : activeSite ? (
+                    <iframe
+                      className="site-frame"
+                      title="Website preview"
+                      src={`${api.SITE_ROUTER_URL}/${activeSite.live_version ? "live" : "preview"}/${activeSite.slug}/`}
+                    />
+                  ) : null}
+                </aside>
+              )}
+            </div>
+          </>
         ) : (
-          <ApprovalsView
-            org={org}
-            approvals={approvals}
-            refresh={refresh}
-            onOpenProject={(projectId) => {
-              const project = projects.find((p) => p.id === projectId);
-              if (project) openProject(project);
-            }}
-          />
+          <div className="empty" style={{ margin: "auto" }}>Pick a conversation to get started.</div>
         )}
       </div>
+
+      {/* ---- overlays (spec §10: settings live behind menus) ---- */}
+      {overlay && (
+        <div className="overlay" onClick={(e) => { if (e.target === e.currentTarget) setOverlay(null); }}>
+          <div className="overlay-panel">
+            <div className="overlay-head">
+              <strong>{org.name}</strong>
+              <button className="icon-btn" style={{ marginLeft: "auto" }} aria-label="Close" onClick={() => setOverlay(null)}>
+                <Icon name="x" size={16} />
+              </button>
+            </div>
+            <div className="overlay-body">
+              {overlay === "grants" && (
+                <GrantsView org={org} projects={projects} onOpenProject={openProjectChannel}
+                  onOpenPassport={() => setOverlay("passport")} />
+              )}
+              {overlay === "passport" && <PassportView org={org} onBack={() => setOverlay(null)} />}
+              {overlay === "website" && (
+                <WebsitesView org={org} refreshTick={refreshTick} onOpenProject={openProjectChannel} />
+              )}
+              {overlay === "approvals" && (
+                <ApprovalsView org={org} approvals={approvals} refresh={refresh} onOpenProject={openProjectChannel} />
+              )}
+              {overlay === "orgs" && (
+                <OrgSetupView
+                  organizations={orgs}
+                  onSelect={(o) => { localStorage.setItem(ORG_KEY, o.id); setOrg(o); setActiveId(null); setOverlay(null); }}
+                  onCreated={() => api.me().then(({ organizations }) => setOrgs(organizations))}
+                />
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {huddleNote && (
+        <div className="overlay" onClick={() => setHuddleNote(false)}>
+          <div className="overlay-panel" style={{ width: 420, height: "auto" }} onClick={(e) => e.stopPropagation()}>
+            <div className="overlay-head"><strong>Huddles</strong>
+              <button className="icon-btn" style={{ marginLeft: "auto" }} aria-label="Close" onClick={() => setHuddleNote(false)}>
+                <Icon name="x" size={16} />
+              </button>
+            </div>
+            <div style={{ padding: 20 }}>
+              <p>Voice huddles with your AI teammates — distinct voices, live captions, decisions
+              posted back to the channel — are the Phase 6 build and aren&rsquo;t available yet.</p>
+              <p className="muted">Everything a huddle would decide can already happen right here in the conversation.</p>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  const [open, setOpen] = useState(true);
+  return (
+    <div>
+      <button className="section-head" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
+        {open ? "▾" : "▸"} {title}
+      </button>
+      {open && children}
+    </div>
+  );
+}
+
+function ChannelItem({
+  c, mateMap, active, unread, onOpen, onStar,
+}: {
+  c: ChannelInfo;
+  mateMap: Map<string, TeammateInfo>;
+  active: boolean;
+  unread: boolean;
+  onOpen: (id: string) => void;
+  onStar: (c: ChannelInfo) => void;
+}) {
+  const mate = c.agent_key ? mateMap.get(c.agent_key) : null;
+  return (
+    <div style={{ display: "flex", alignItems: "center" }}>
+      <button className={`convo-item ${active ? "active" : ""}`} onClick={() => onOpen(c.id)}>
+        {c.kind === "dm" ? (
+          <span className="mini-avatar" style={{ background: agentColor(c.agent_key ?? "") }}>
+            {(mate?.name ?? c.name).slice(0, 2).toUpperCase()}
+            <span className="presence" />
+          </span>
+        ) : (
+          <span style={{ width: 16, textAlign: "center", color: "var(--fg-faint)" }}>#</span>
+        )}
+        <span className="label">
+          {mate?.name ?? c.name}
+          {mate && <span className="sub">{mate.role}</span>}
+        </span>
+        {unread && <span className="unread-dot" aria-label="Unread" />}
+        <span
+          className="star" role="button" title={c.starred ? "Unstar" : "Star"}
+          onClick={(e) => { e.stopPropagation(); onStar(c); }}
+        >
+          {c.starred ? "★" : "☆"}
+        </span>
+      </button>
     </div>
   );
 }

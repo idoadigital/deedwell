@@ -259,10 +259,58 @@ export interface SubmissionRow {
   created_at: string;
 }
 
-export interface WorkflowEvent {
-  type: "run_updated";
-  tenantId: string;
-  runId: string;
-  status: RunStatus;
-  step: string;
+export type WorkflowEvent =
+  | { type: "run_updated"; tenantId: string; runId: string; status: RunStatus; step: string }
+  | { type: "message_created"; tenantId: string; channelId: string };
+
+// ---- chat ----
+
+export interface TeammateInfo {
+  agentKey: string;
+  name: string;
+  role: string;
+  team: string;
+}
+
+export interface ChannelInfo {
+  id: string;
+  key: string;
+  name: string;
+  kind: "team" | "project" | "dm";
+  project_id: string | null;
+  project_type: string | null;
+  agent_key: string | null;
+  starred: boolean;
+  last_message_at: string | null;
+}
+
+export interface ChatMessage {
+  id: string;
+  author_kind: "user" | "agent" | "system";
+  author_user: string | null;
+  author_agent: string | null;
+  author_name: string | null;
+  body: string;
+  metadata: {
+    searchResults?: Array<{
+      index: number; title: string; funder?: string; number?: string;
+      closeDate?: string | null; sourceUrl?: string;
+    }>;
+    approvalId?: string;
+    approvalKind?: string;
+    approvalPayload?: Record<string, unknown>;
+    infoRequest?: string[];
+    runId?: string;
+    siteId?: string;
+    fileId?: string;
+    goToChannelId?: string;
+  };
+  created_at: string;
+}
+
+export interface MemberInfo {
+  id: string;
+  display_name: string;
+  email: string;
+  role: OrgRole;
 }

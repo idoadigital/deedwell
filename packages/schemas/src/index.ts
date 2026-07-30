@@ -191,6 +191,7 @@ export const AgentDefinition = z.object({
     "website_brief",
     "site_content",
     "site_patch",
+    "intent",
     // "none" marks agents whose work is deterministic system logic (e.g. the
     // eligibility engine) — listed in the directory, never sent to a model.
     "none",
@@ -487,6 +488,38 @@ export const WebsiteUpdateInput = z.object({
 
 export const RollbackInput = z.object({
   releaseId: z.string().uuid(),
+});
+
+// ---------------------------------------------------------------------------
+// Executive Assistant — intent contract. The assistant reads the user's
+// message plus workspace context and returns ONE typed action; execution is
+// always deterministic server code. Free text never triggers actions directly.
+// ---------------------------------------------------------------------------
+
+export const IntentOutput = z.discriminatedUnion("action", [
+  z.object({ action: z.literal("search_grants"), keyword: z.string().min(2).max(200) }),
+  z.object({
+    action: z.literal("start_grant_application"),
+    // 1-based index into the most recent search results shown in this channel.
+    resultIndex: z.number().int().min(1).max(20),
+  }),
+  z.object({ action: z.literal("build_website"), siteName: z.string().max(120).nullable() }),
+  z.object({ action: z.literal("update_website"), instruction: z.string().min(3).max(1000) }),
+  z.object({
+    action: z.literal("provide_info"),
+    facts: z.array(z.object({ key: z.string().min(1).max(120), value: z.string().min(1).max(4000) })).min(1),
+  }),
+  z.object({ action: z.literal("approve"), note: z.string().max(500).nullable() }),
+  z.object({ action: z.literal("reject"), note: z.string().max(500).nullable() }),
+  z.object({ action: z.literal("status") }),
+  z.object({ action: z.literal("answer"), text: z.string().min(1).max(2000) }),
+  z.object({ action: z.literal("clarify"), question: z.string().min(1).max(500) }),
+]);
+export type IntentOutput = z.infer<typeof IntentOutput>;
+
+export const PostMessageInput = z.object({
+  body: z.string().min(1).max(4000),
+  fileId: z.string().uuid().nullable().optional(),
 });
 
 export const RecordOutcomeInput = z.object({

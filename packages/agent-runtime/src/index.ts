@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
   BudgetOutput,
+  IntentOutput,
   LogicModelOutput,
   RequirementsExtractionOutput,
   ReviewPanelOutput,
@@ -12,6 +13,7 @@ import {
   type AgentDefinition,
 } from "@deedwell/schemas";
 import { MockModelProvider } from "./mock-provider.js";
+import { OpenAiProvider } from "./openai-provider.js";
 
 export { MockModelProvider } from "./mock-provider.js";
 export { seedAgentDefinitions } from "./seed.js";
@@ -39,7 +41,8 @@ export interface ModelRequest {
     | "review_panel"
     | "website_brief"
     | "site_content"
-    | "site_patch";
+    | "site_patch"
+    | "intent";
 }
 
 export interface ModelResponse {
@@ -58,9 +61,9 @@ export interface ModelProvider {
 // this codebase pretends otherwise (see ADR-0003).
 export function createModelProvider(kind = process.env.MODEL_PROVIDER ?? "mock"): ModelProvider {
   if (kind === "mock") return new MockModelProvider();
+  if (kind === "openai") return new OpenAiProvider();
   throw new Error(
-    `Model provider "${kind}" is not implemented. Available: "mock". ` +
-      `Real provider adapters are tracked in ADR-0003.`
+    `Model provider "${kind}" is not implemented. Available: "mock", "openai".`
   );
 }
 
@@ -78,6 +81,7 @@ const OUTPUT_SCHEMAS: Record<ModelRequest["outputSchemaRef"], z.ZodTypeAny> = {
   website_brief: WebsiteBriefOutput,
   site_content: SiteContentOutput,
   site_patch: SitePatchOutput,
+  intent: IntentOutput,
 };
 
 /**

@@ -64,8 +64,7 @@ export async function createDeps(overrides: Partial<{
   engine.register(buildWebsiteBuildWorkflow());
   engine.register(buildWebsiteUpdateWorkflow());
 
-  await seedAgentDefinitions(adminPool, [...ALL_AGENTS, ...WEBSITE_AGENTS]);
-  return {
+  const deps: Deps = {
     adminPool,
     appPool,
     storage,
@@ -74,4 +73,8 @@ export async function createDeps(overrides: Partial<{
     engine,
     grantSource: createGrantSource(),
   };
+  const { executiveAssistant, attachEngineBridge } = await import("./assistant.js");
+  await seedAgentDefinitions(adminPool, [...ALL_AGENTS, ...WEBSITE_AGENTS, executiveAssistant]);
+  attachEngineBridge(deps);
+  return deps;
 }

@@ -3,7 +3,7 @@ import { AgentDefinition } from "@deedwell/schemas";
 export const requirementsAnalyst: AgentDefinition = AgentDefinition.parse({
   agentKey: "grant.requirements_analyst",
   version: 1,
-  displayName: "Priya — Requirements Analyst",
+  displayName: "Naomi — Compliance Reviewer",
   team: "grant",
   role: "Requirements Analyst on the Grant Team",
   instructions: `Convert grant announcement text into a structured compliance matrix.
@@ -18,7 +18,7 @@ Never invent requirements that are not present in the source material.`,
 export const grantWriter: AgentDefinition = AgentDefinition.parse({
   agentKey: "grant.writer",
   version: 1,
-  displayName: "Marcus — Grant Writer",
+  displayName: "Sophia — Grant Writer",
   team: "grant",
   role: "Grant Writer on the Grant Team",
   instructions: `Draft proposal sections using ONLY the organizational facts provided.
@@ -33,7 +33,7 @@ behind professional-sounding language.`,
 export const programPlanner: AgentDefinition = AgentDefinition.parse({
   agentKey: "grant.program_planner",
   version: 1,
-  displayName: "Sofia — Program Design Specialist",
+  displayName: "Daniel — Project Manager",
   team: "grant",
   role: "Program Design Specialist on the Grant Team",
   instructions: `Turn the funder's narrative requirements into a section outline and an activity
@@ -47,7 +47,7 @@ the funder did not ask for.`,
 export const budgetSpecialist: AgentDefinition = AgentDefinition.parse({
   agentKey: "grant.budget_specialist",
   version: 1,
-  displayName: "Ade — Budget Specialist",
+  displayName: "Michael — Budget Specialist",
   team: "grant",
   role: "Budget Specialist on the Grant Team",
   instructions: `Build a line-item budget where every item is tied to a planned activity and
@@ -90,7 +90,7 @@ fatal flaws bluntly; a polite review that hides a disqualifier is a failed revie
 export const eligibilityAnalyst: AgentDefinition = AgentDefinition.parse({
   agentKey: "grant.eligibility_analyst",
   version: 1,
-  displayName: "Elena — Eligibility Analyst",
+  displayName: "Grace — Eligibility Analyst",
   team: "grant",
   role: "Eligibility Analyst (deterministic rules engine — missing information is never treated as eligible)",
   instructions: "Deterministic evaluation of derived eligibility rules against the fact ledger.",
@@ -102,7 +102,7 @@ export const eligibilityAnalyst: AgentDefinition = AgentDefinition.parse({
 export const fundingStrategist: AgentDefinition = AgentDefinition.parse({
   agentKey: "grant.funding_strategist",
   version: 1,
-  displayName: "Noor — Funding Strategist",
+  displayName: "Amara — Funding Strategist",
   team: "grant",
   role: "Funding Strategist (deterministic bid/no-bid scoring — recommends not applying when the case is weak)",
   instructions: "Deterministic weighted scoring across eligibility, timing, readiness, fit, and burden.",

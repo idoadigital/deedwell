@@ -1,9 +1,13 @@
 import type {
   AgentInfo,
   ApplicationRow,
+  ChannelInfo,
+  ChatMessage,
+  MemberInfo,
   SiteDetail,
   SiteRow,
   SubmissionRow,
+  TeammateInfo,
   Approval,
   ArtifactDetail,
   OpportunityDetail,
@@ -158,6 +162,36 @@ export const getExportMarkdown = (orgId: string, artifactId: string) =>
 // ---- agents ---------------------------------------------------------------
 
 export const listAgents = () => call<{ agents: AgentInfo[] }>("GET", "/v1/agents");
+
+// ---- chat -----------------------------------------------------------------
+
+export const listChannels = (orgId: string) =>
+  call<{ channels: ChannelInfo[]; teammates: TeammateInfo[] }>("GET", `/v1/orgs/${orgId}/channels`);
+
+export const createChannel = (orgId: string, name: string) =>
+  call<{ projectId: string; channelId: string; channelName: string }>(
+    "POST", `/v1/orgs/${orgId}/channels`, { name });
+
+export const starChannel = (orgId: string, channelId: string, starred: boolean) =>
+  call<{ ok: true }>("POST", `/v1/orgs/${orgId}/channels/${channelId}/star`, { starred });
+
+export const listMessages = (orgId: string, channelId: string) =>
+  call<{ messages: ChatMessage[] }>("GET", `/v1/orgs/${orgId}/channels/${channelId}/messages`);
+
+export const sendMessage = (orgId: string, channelId: string, body: string, fileId?: string | null) =>
+  call<{ messages: ChatMessage[] }>("POST", `/v1/orgs/${orgId}/channels/${channelId}/messages`, {
+    body, fileId: fileId ?? null,
+  });
+
+export const uploadChatFile = (
+  orgId: string, channelId: string,
+  filename: string, mime: "text/plain" | "text/markdown", contentBase64: string
+) =>
+  call<{ fileId: string; filename: string }>(
+    "POST", `/v1/orgs/${orgId}/channels/${channelId}/files`, { filename, mime, contentBase64 });
+
+export const listMembers = (orgId: string) =>
+  call<{ members: MemberInfo[] }>("GET", `/v1/orgs/${orgId}/members`);
 
 // ---- Phase 3: passport, discovery, applications ---------------------------
 
