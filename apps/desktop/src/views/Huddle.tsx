@@ -57,6 +57,8 @@ export function HuddleView({
   const [text, setText] = useState("");
   const [micOn, setMicOn] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [phase, setPhase] = useState<string>("");        // listening / finishing / deciding
+  const [thinking, setThinking] = useState<string | null>(null); // routed agent while reasoning
 
   const wsRef = useRef<WebSocket | null>(null);
   const audioQ = useRef<Blob[]>([]);
@@ -122,11 +124,26 @@ export function HuddleView({
               case "transcript_partial":
                 setPartial(msg.body ?? "");
                 break;
+              case "state":
+                setPhase(
+                  msg.state === "listening" ? "Listening…"
+                  : msg.state === "turn_completion_pending" ? "Finishing your thought…"
+                  : msg.state === "deciding" ? "Deciding who should respond…"
+                  : ""
+                );
+                break;
+              case "routing":
+                setPhase("");
+                setThinking(msg.primary ?? null);
+                break;
+              case "backchannel":
+                break; // acknowledged nod — no floor change, no transcript entry
               case "transcript_final":
                 setPartial("");
                 addLine("user", "You", msg.body);
                 break;
               case "speaker_change":
+                setThinking(null);
                 setSpeaking(msg.speaker === "idle" ? null : msg.speaker);
                 if (msg.speaker === "user") stopPlayback();
                 break;
@@ -169,6 +186,7 @@ export function HuddleView({
       micStop.current?.();
       micStop.current = null;
       setMicOn(false);
+      wsRef.current?.send(JSON.stringify({ type: "flush" })); // deliberate end of turn
       return;
     }
     if (!window.isSecureContext) {
@@ -250,7 +268,9 @@ export function HuddleView({
                 <div key={t.agentKey} className={"huddle-tile " + (speaking === t.agentKey ? "speaking" : "")}>
                   <Avatar id={t.agentKey} name={t.name} size={64} presence />
                   <strong>{t.name}</strong>
-                  <span className="faint">{speaking === t.agentKey ? "speaking…" : t.role}</span>
+                  <span className="faint">
+                    {speaking === t.agentKey ? "speaking…" : thinking === t.agentKey ? "thinking…" : t.role}
+                  </span>
                 </div>
               ))}
               <div className={"huddle-tile " + (micOn || speaking === "user" ? "speaking" : "")}>
@@ -263,6 +283,8 @@ export function HuddleView({
             <div className="huddle-caption" aria-live="polite">
               {partial
                 ? <em className="muted">{partial}…</em>
+                : phase
+                  ? <span className="muted">{phase}</span>
                 : speaking && speaking !== "user"
                   ? <><strong>{teammates.get(speaking)?.name ?? ""}:</strong>&nbsp;{caption}</>
                   : "Speak (mic) or type — one voice at a time; talking interrupts."}

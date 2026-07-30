@@ -292,7 +292,8 @@ export async function handleUserMessage(
   body: string,
   fileId: string | null,
   clientKey?: string | null,
-  huddleId?: string | null
+  huddleId?: string | null,
+  personaOverride?: string | null
 ): Promise<Array<Record<string, unknown>>> {
   if (clientKey) {
     const dup = await client.query(
@@ -303,7 +304,8 @@ export async function handleUserMessage(
   }
   const out: Array<Record<string, unknown>> = [];
   // In a DM, the teammate you're talking to answers; elsewhere Maya coordinates.
-  const persona = channel.kind === "dm" && channel.agent_key ? channel.agent_key : executiveAssistant.agentKey;
+  const persona = personaOverride
+    ?? (channel.kind === "dm" && channel.agent_key ? channel.agent_key : executiveAssistant.agentKey);
   const say = async (text: string, metadata: Record<string, unknown> = {}, agent = persona) => {
     out.push(await insertMessage(client, {
       tenantId: ids.tenantId, channelId: channel.id, authorKind: "agent",

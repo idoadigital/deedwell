@@ -39,3 +39,29 @@ memory, and the milestone bridge all function mid-huddle. Nothing is a parallel 
   (stt_unavailable → type; voice off → captions).
 - **Deferred honestly**: SFU/WebRTC transport, multi-human huddles, echo-cancellation tuning
   beyond the browser's built-ins.
+
+
+## Orchestrated turns (enhancement)
+
+- **Shared Turn Manager** (`huddle-turns.ts`, fully unit-tested with fake timers): ASR finals
+  are candidate segments, never commitments. Hybrid endpointing — semantic-completeness
+  heuristics over unpunctuated ASR text (continuation tails, hesitations, short-utterance
+  guard) choose between a normal grace window (1.8s) and an extended one (3.2s) plus a safety
+  timeout; resumed speech cancels the pending commit and continues the SAME turn. All windows
+  env-tunable (HUDDLE_GRACE_MS, HUDDLE_INCOMPLETE_GRACE_MS, HUDDLE_MAX_TURN_WAIT_MS,
+  HUDDLE_MIN_INTERRUPT_WORDS). "I need help… (1s) …fixing the checkout flow" = one turn.
+- **Backchannels**: "yeah/mm-hmm/okay" during agent speech are acknowledged (event logged),
+  never barge-ins; "yes" right after the agent asks a question IS an answer; priority commands
+  (stop/wait/hold on/that's not…) always interrupt.
+- **Orchestrator routing** per committed turn: deterministic explicit name/role addressing
+  first (confidence 1.0), then weighted implicit scoring (expertise match, task ownership,
+  conversation continuity) with reason codes (EXPLICIT_NAME, EXPERTISE_MATCH, TASK_OWNER,
+  CONVERSATION_CONTINUITY, LOW_CONFIDENCE → moderator fallback). Structured RoutingDecision
+  persisted as a huddle event and logged.
+- **Floor invariants**: turn IDs stale-check every stage — a newer committed turn silences
+  older replies before their first (or next) sentence; typed input commits immediately;
+  muting the mic flushes the pending turn deliberately. Redundancy suppression via token
+  overlap for follow-up contributions. Commit→first-audio latency logged per turn.
+- **UI states**: Listening… / Finishing your thought… / Deciding who should respond… /
+  per-tile thinking… / speaking… — provisional captions never enter the transcript until
+  the turn commits.
