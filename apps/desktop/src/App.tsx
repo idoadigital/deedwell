@@ -6,6 +6,7 @@ import type {
   SiteRow, TeammateInfo, WorkflowEvent,
 } from "./types";
 import { Icon } from "./components/Icon";
+import { Avatar } from "./components/Avatar";
 import { ArtifactPanel } from "./components/ArtifactPanel";
 import { LoginView } from "./views/Login";
 import { OrgSetupView } from "./views/OrgSetup";
@@ -47,6 +48,7 @@ export default function App() {
   const [huddleNote, setHuddleNote] = useState(false);
   const [sidePanel, setSidePanel] = useState<"work" | "site" | null>(null);
   const [runDetail, setRunDetail] = useState<RunDetail | null>(null);
+  const [panelWidth, setPanelWidth] = useState(460);
   const [refreshTick, setRefreshTick] = useState(0);
   const [seen, setSeen] = useState<Record<string, string>>(() => {
     try { return JSON.parse(localStorage.getItem(SEEN_KEY) ?? "{}"); } catch { return {}; }
@@ -182,12 +184,24 @@ export default function App() {
   };
 
   const latestRunStatus = activeRuns[0]?.status;
+  const pendingCount = approvals.filter((a) => a.status === "pending").length;
+  const statusLine = activeRuns[0]
+    ? activeRuns[0].definition.startsWith("website")
+      ? latestRunStatus === "completed" ? "Website up to date" : "Website work in progress"
+      : latestRunStatus === "completed" ? "Application complete" : "Grant application in progress"
+    : null;
+  const lastUpdated = activeRuns[0]
+    ? (() => {
+        const mins = Math.floor((Date.now() - new Date(activeRuns[0].updated_at).getTime()) / 60000);
+        return mins < 2 ? "just now" : mins < 60 ? `${mins} min ago` : `${Math.floor(mins / 60)}h ago`;
+      })()
+    : null;
 
   return (
     <div className="shell">
       {/* ---- workspace rail (spec §2) ---- */}
       <nav className="rail" aria-label="Workspaces">
-        <div className="logo" title="Deedwell">D</div>
+        <div className="logo" title="Deedwell"><Icon name="leaf" size={24} /></div>
         {orgs.map((o) => (
           <button
             key={o.id}
@@ -201,8 +215,8 @@ export default function App() {
         <button className="org-avatar add" title="Add or join a workspace" onClick={() => setOverlay("orgs")}>+</button>
         <div className="spacer" />
         <div style={{ position: "relative" }}>
-          <button className="profile" title="You" onClick={() => setProfileMenu((v) => !v)}>
-            U<span className="presence" />
+          <button className="profile" title="You" aria-label="Your profile" onClick={() => setProfileMenu((v) => !v)}>
+            <Avatar id="you" name="You" size={44} presence />
           </button>
           {profileMenu && (
             <div className="menu" style={{ left: 50, bottom: 0 }}>
@@ -235,18 +249,23 @@ export default function App() {
               </div>
             )}
           </div>
-          <button className="icon-btn" title="New conversation" aria-label="New conversation" onClick={newConversation}>
-            <Icon name="plus" size={15} />
-          </button>
-          <button className="icon-btn" title="Start a huddle" aria-label="Start a huddle" onClick={() => setHuddleNote(true)}>
-            <Icon name="activity" size={15} />
+          <button className="icon-btn" title="Notifications" aria-label="Notifications">
+            <Icon name="bell" size={17} />
+            {pendingCount > 0 && (
+              <span className="presence" style={{ right: 4, top: 4, bottom: "auto" }} aria-label={`${pendingCount} items waiting`} />
+            )}
           </button>
         </div>
         <div className="convo-search">
-          <input
-            aria-label="Search conversations" placeholder="Search"
-            value={sidebarFilter} onChange={(e) => setSidebarFilter(e.target.value)}
-          />
+          <div className="search-box">
+            <span aria-hidden="true">🔍</span>
+            <input
+              aria-label="Search conversations" placeholder="Search"
+              value={sidebarFilter} onChange={(e) => setSidebarFilter(e.target.value)}
+              style={{ flex: 1 }}
+            />
+            <kbd>⌘K</kbd>
+          </div>
         </div>
         <div className="convo-scroll">
           {starred.length > 0 && (
@@ -257,7 +276,7 @@ export default function App() {
               ))}
             </Section>
           )}
-          <Section title="Channels">
+          <Section title="Channels" onAdd={newConversation}>
             {roomChannels.map((c) => (
               <ChannelItem key={c.id} c={c} mateMap={mateMap} active={activeId === c.id}
                 unread={isUnread(c)} onOpen={openChannel} onStar={toggleStar} />
@@ -277,10 +296,8 @@ export default function App() {
           <Section title="People">
             {members.filter((m) => match(m.display_name)).map((m) => (
               <div key={m.id} className="convo-item" title="Direct messages between people arrive in a later phase" style={{ cursor: "default" }}>
-                <span className="mini-avatar" style={{ background: "var(--info-dim)", color: "var(--info)" }}>
-                  {m.display_name.slice(0, 2).toUpperCase()}
-                </span>
-                <span className="label">{m.display_name}<span className="sub">{m.role}</span></span>
+                <Avatar id={m.id} name={m.display_name} size={26} presence />
+                <span className="label"><strong style={{ fontWeight: 550 }}>{m.display_name}</strong><span className="role">  {m.role === "owner" ? "you" : m.role}</span></span>
               </div>
             ))}
           </Section>
@@ -301,44 +318,49 @@ export default function App() {
           <>
             <header className="chat-head">
               {active.kind === "dm" ? (
-                <>
-                  <span className="mini-avatar" style={{ background: agentColor(active.agent_key ?? ""), width: 28, height: 28, fontSize: 12 }}>
-                    {(mateMap.get(active.agent_key ?? "")?.name ?? active.name).slice(0, 2).toUpperCase()}
-                    <span className="presence" />
-                  </span>
+                <div className="row" style={{ gap: 12 }}>
+                  <Avatar id={active.agent_key ?? "dm"} name={active.name} size={40} presence />
                   <div>
                     <div className="title">{mateMap.get(active.agent_key ?? "")?.name ?? active.name}</div>
                     <div className="desc">{mateMap.get(active.agent_key ?? "")?.role ?? "AI teammate"} · online</div>
                   </div>
-                </>
+                </div>
               ) : (
                 <div>
-                  <div className="title"># {active.name}</div>
+                  <div className="title"># {active.name} <Icon name="chevron" size={15} /></div>
                   <div className="desc">
-                    {CHANNEL_DESCRIPTIONS[active.key] ??
-                      (active.kind === "project" ? "Project channel — the team works here" : "Shared channel")}
-                    {latestRunStatus ? ` · ${latestRunStatus.replace(/_/g, " ")}` : ""}
+                    {statusLine ? (
+                      <>
+                        <span className="status-dot" aria-hidden="true" /> {statusLine}
+                        {lastUpdated && <span style={{ color: "var(--fg-faint)" }}> · Last updated {lastUpdated}</span>}
+                      </>
+                    ) : (
+                      CHANNEL_DESCRIPTIONS[active.key] ??
+                        (active.kind === "project" ? "Project channel — the team works here" : "Shared channel")
+                    )}
                   </div>
                 </div>
               )}
-              <div className="chat-tabs">
-                <button className={`chat-tab ${sidePanel === null ? "active" : ""}`} onClick={() => setSidePanel(null)}>
+              <div className="seg-control" role="tablist" aria-label="Conversation views">
+                <button role="tab" aria-selected={sidePanel === null} className={`seg-btn ${sidePanel === null ? "active" : ""}`} onClick={() => setSidePanel(null)}>
                   Messages
                 </button>
-                {activeRuns.length > 0 && (
-                  <button className={`chat-tab ${sidePanel === "work" ? "active" : ""}`} onClick={() => setSidePanel("work")}>
-                    Work & artifacts
-                  </button>
-                )}
+                <button role="tab" aria-selected={sidePanel === "work"} className={`seg-btn ${sidePanel === "work" ? "active" : ""}`}
+                  onClick={() => setSidePanel("work")} disabled={activeRuns.length === 0 && !activeSite}>
+                  Work & artifacts
+                </button>
                 {activeSite && (
-                  <button className={`chat-tab ${sidePanel === "site" ? "active" : ""}`} onClick={() => setSidePanel("site")}>
+                  <button role="tab" aria-selected={sidePanel === "site"} className={`seg-btn ${sidePanel === "site" ? "active" : ""}`} onClick={() => setSidePanel("site")}>
                     Live website
                   </button>
                 )}
-                <button className="chat-tab" title="Huddles arrive in Phase 6" onClick={() => setHuddleNote(true)}>
+                <button role="tab" aria-selected={false} className="seg-btn" title="Huddles arrive in Phase 6" onClick={() => setHuddleNote(true)}>
                   Huddle
                 </button>
               </div>
+              <button className="icon-btn" aria-label="Conversation options" onClick={() => setWsMenu(false)}>
+                <span style={{ letterSpacing: 2, fontWeight: 700 }}>…</span>
+              </button>
             </header>
             <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
               <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
@@ -351,7 +373,25 @@ export default function App() {
               </div>
               {/* ---- contextual artifact panel (spec §6) ---- */}
               {sidePanel && (
-                <aside className="artifact-side" aria-label="Artifacts">
+                <div
+                  className="panel-grip" role="separator" aria-orientation="vertical"
+                  aria-label="Resize panel"
+                  onPointerDown={(e) => {
+                    const startX = e.clientX;
+                    const startW = panelWidth;
+                    const move = (ev: PointerEvent) =>
+                      setPanelWidth(Math.min(Math.max(startW + (startX - ev.clientX), 320), window.innerWidth * 0.6));
+                    const up = () => {
+                      window.removeEventListener("pointermove", move);
+                      window.removeEventListener("pointerup", up);
+                    };
+                    window.addEventListener("pointermove", move);
+                    window.addEventListener("pointerup", up);
+                  }}
+                />
+              )}
+              {sidePanel && (
+                <aside className="artifact-side" aria-label="Artifacts" style={{ width: panelWidth }}>
                   <div className="artifact-side-head">
                     <strong style={{ fontSize: 13 }}>
                       {sidePanel === "site" ? "Live website" : "Work & artifacts"}
@@ -441,13 +481,28 @@ export default function App() {
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({
+  title,
+  onAdd,
+  children,
+}: {
+  title: string;
+  onAdd?: () => void;
+  children: React.ReactNode;
+}) {
   const [open, setOpen] = useState(true);
   return (
     <div>
-      <button className="section-head" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
-        {open ? "▾" : "▸"} {title}
-      </button>
+      <div style={{ display: "flex", alignItems: "center" }}>
+        <button className="section-head" onClick={() => setOpen((v) => !v)} aria-expanded={open} style={{ flex: 1 }}>
+          {title}
+        </button>
+        {onAdd && (
+          <button className="icon-btn add" aria-label={`New ${title.toLowerCase()} item`} onClick={onAdd} style={{ padding: 4 }}>
+            <Icon name="plus" size={13} />
+          </button>
+        )}
+      </div>
       {open && children}
     </div>
   );
@@ -468,18 +523,15 @@ function ChannelItem({
     <div style={{ display: "flex", alignItems: "center" }}>
       <button className={`convo-item ${active ? "active" : ""}`} onClick={() => onOpen(c.id)}>
         {c.kind === "dm" ? (
-          <span className="mini-avatar" style={{ background: agentColor(c.agent_key ?? "") }}>
-            {(mate?.name ?? c.name).slice(0, 2).toUpperCase()}
-            <span className="presence" />
-          </span>
+          <Avatar id={c.agent_key ?? c.id} name={mate?.name ?? c.name} size={26} presence />
         ) : (
-          <span style={{ width: 16, textAlign: "center", color: "var(--fg-faint)" }}>#</span>
+          <span className="hash" aria-hidden="true">#</span>
         )}
         <span className="label">
-          {mate?.name ?? c.name}
-          {mate && <span className="sub">{mate.role}</span>}
+          <strong style={{ fontWeight: active ? 650 : 550 }}>{mate?.name ?? c.name}</strong>
+          {mate && <span className="role">  {mate.role}</span>}
         </span>
-        {unread && <span className="unread-dot" aria-label="Unread" />}
+        {unread && <span className="unread-dot" aria-label="Unread messages" />}
         <span
           className="star" role="button" title={c.starred ? "Unstar" : "Star"}
           onClick={(e) => { e.stopPropagation(); onStar(c); }}

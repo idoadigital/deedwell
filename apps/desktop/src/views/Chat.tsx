@@ -2,11 +2,13 @@ import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 
 import * as api from "../api";
 import type { ChannelInfo, ChatMessage, Organization, TeammateInfo } from "../types";
 import { Icon } from "../components/Icon";
+import { Avatar } from "../components/Avatar";
+import { chips, fitLabel, headline, type BidPayload } from "../decision";
 import { roleAtLeast } from "../roles";
 
 export function agentColor(key: string): string {
   const hue = [...key].reduce((n, c) => (n * 31 + c.charCodeAt(0)) % 360, 7);
-  return `hsl(${hue} 45% 38%)`;
+  return `hsl(${hue} 40% 45%)`;
 }
 
 export function splitAgent(teammates: Map<string, TeammateInfo>, agentKey: string | null) {
@@ -141,29 +143,37 @@ export function ChatView({
             onKeyDown={onKey}
           />
           <div className="composer-actions">
-            <button
-              type="button" className="icon-btn" title="Attach a file (.txt/.md)"
-              aria-label="Attach file" disabled={!canPost}
-              onClick={() => fileRef.current?.click()}
-            >
+            <button type="button" className="icon-btn" title="Attach a file (.txt/.md)"
+              aria-label="Attach file" disabled={!canPost} onClick={() => fileRef.current?.click()}>
+              <Icon name="plus" size={16} />
+            </button>
+            <button type="button" className="icon-btn" title="Bold (wraps **text**)"
+              aria-label="Format text" disabled={!canPost}
+              onClick={() => setText((t) => (t.trim() ? `**${t.trim()}**` : t))}>
+              <span style={{ fontSize: 14, fontWeight: 700 }}>Aa</span>
+            </button>
+            <button type="button" className="icon-btn" title="Add an emoji"
+              aria-label="Add emoji" disabled={!canPost}
+              onClick={() => setText((t) => `${t}🙂`)}>
+              <span style={{ fontSize: 15 }}>☺</span>
+            </button>
+            <button type="button" className="icon-btn" title="Mention a teammate"
+              aria-label="Mention a teammate" disabled={!canPost}
+              onClick={() => setText((t) => `${t}@`)}>
+              <span style={{ fontSize: 15, fontWeight: 600 }}>@</span>
+            </button>
+            <button type="button" className="icon-btn" title="Attach a file"
+              aria-label="Attach a file" disabled={!canPost} onClick={() => fileRef.current?.click()}>
               <Icon name="upload" size={15} />
             </button>
-            <button
-              type="button" className="icon-btn"
-              title="Voice input arrives with huddles (Phase 6)"
-              aria-label="Voice input (not yet available)" disabled
-            >
-              <Icon name="activity" size={15} />
+            <span className="sep" aria-hidden="true" />
+            <button type="button" className="icon-btn" title="Ask Maya what to do next"
+              aria-label="AI assist" disabled={!canPost} style={{ color: "#7c5cbf" }}
+              onClick={() => setText("Maya, what should we do next?")}>
+              <span style={{ fontSize: 15 }}>✦</span>
             </button>
-            <button
-              type="button" className="icon-btn" title="Mention a teammate"
-              aria-label="Mention" disabled={!canPost}
-              onClick={() => setText((t) => `${t}@`)}
-            >
-              <Icon name="users" size={15} />
-            </button>
-            <button className="primary send" disabled={!canPost || busy || !text.trim()}>
-              Send
+            <button className="send" disabled={!canPost || busy || !text.trim()} aria-label="Send message">
+              <Icon name="send" size={16} />
             </button>
           </div>
           <input
@@ -214,15 +224,14 @@ function Message({
   return (
     <div className="chat-msg">
       {grouped ? (
-        <div style={{ width: 34, flexShrink: 0 }} />
+        <div style={{ width: 44, flexShrink: 0 }} />
       ) : (
-        <div
-          className="m-avatar"
-          style={{ background: isAgent ? agentColor(m.author_agent ?? "") : "var(--info-dim)", color: isAgent ? "#fff" : "var(--info)" }}
-          aria-hidden="true"
-        >
-          {who.name.slice(0, 2).toUpperCase()}
-        </div>
+        <Avatar
+          id={m.author_agent ?? m.author_user ?? "user"}
+          name={who.name}
+          size={44}
+          presence={isAgent}
+        />
       )}
       <div className="m-body">
         {!grouped && (
@@ -262,7 +271,15 @@ function Message({
           <InfoQuickForm keys={meta.infoRequest} onSubmit={onQuickSend} />
         )}
 
-        {meta.approvalId && (
+        {meta.approvalId && meta.approvalKind === "bid_decision" && (
+          <GrantDecisionCard
+            org={org}
+            approvalId={meta.approvalId}
+            payload={(meta.approvalPayload ?? {}) as BidPayload}
+            refresh={refresh}
+          />
+        )}
+        {meta.approvalId && meta.approvalKind !== "bid_decision" && (
           <ApprovalActions org={org} approvalId={meta.approvalId} refresh={refresh} />
         )}
 
@@ -315,6 +332,82 @@ function InfoQuickForm({ keys, onSubmit }: { keys: string[]; onSubmit: (body: st
   );
 }
 
+/** Reusable, fully wired decision card for bid/no-bid approvals (theme.png). */
+function GrantDecisionCard({
+  org,
+  approvalId,
+  payload,
+  refresh,
+}: {
+  org: Organization;
+  approvalId: string;
+  payload: BidPayload;
+  refresh: () => void;
+}) {
+  const [done, setDone] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const canDecide = roleAtLeast(org.role, "admin");
+  const total = Number(payload.total ?? 0);
+  const fit = fitLabel(payload.recommendation, total);
+  const chipList = chips(payload.dimensions);
+
+  async function decide(decision: "approved" | "rejected") {
+    setBusy(true);
+    try {
+      await api.decideApproval(org.id, approvalId, decision);
+      setDone(decision === "approved" ? "Proceeding — the team is on it." : "Passed on this one.");
+      refresh();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="decision-card">
+      <div className="decision-top">
+        <div className="decision-score">
+          <div className="medal" aria-hidden="true"><Icon name="check-circle" size={26} /></div>
+          <div className="num">{total}<small> /100</small></div>
+          <div className={`fit ${fit.tone === "good" ? "" : fit.tone === "warn" ? "warn" : "low"}`}>{fit.label}</div>
+        </div>
+        <div className="decision-main">
+          <div className="headline">{headline(payload.recommendation)}</div>
+          <div className="expl">{(payload.rationale ?? "").split(". ").slice(1).join(". ") || payload.rationale}</div>
+          <div className="decision-chips">
+            {chipList.map((c) => (
+              <span key={c.label} className={`chip ${c.good ? "good" : ""}`}>
+                <Icon name={c.good ? "check-circle" : "clock"} size={13} /> {c.label}: {c.value}
+              </span>
+            ))}
+          </div>
+        </div>
+      </div>
+      {payload.dimensions && (
+        <div className="decision-why">
+          <div className="why-title"><Icon name="alert" size={14} /> Why this score?</div>
+          <p>{payload.dimensions.map((d) => d.note).slice(0, 2).join(" ")}</p>
+        </div>
+      )}
+      <div className="decision-actions">
+        {done ? (
+          <span className="pill green">{done}</span>
+        ) : canDecide ? (
+          <>
+            <button className="primary" disabled={busy} onClick={() => decide("approved")}>
+              Proceed →
+            </button>
+            <button className="danger" disabled={busy} onClick={() => decide("rejected")}>
+              Pass ✕
+            </button>
+          </>
+        ) : (
+          <span className="faint">An admin can decide here or by replying "approve" / "pass".</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function ApprovalActions({
   org,
   approvalId,
@@ -342,9 +435,9 @@ function ApprovalActions({
     }
   }
   return (
-    <div className="row" style={{ marginTop: 6 }}>
-      <button className="primary" disabled={busy} onClick={() => decide("approved")}>Approve</button>
-      <button className="danger" disabled={busy} onClick={() => decide("rejected")}>Reject</button>
+    <div className="row" style={{ marginTop: 8 }}>
+      <button className="primary" disabled={busy} onClick={() => decide("approved")}>Proceed →</button>
+      <button className="danger" disabled={busy} onClick={() => decide("rejected")}>Pass ✕</button>
     </div>
   );
 }

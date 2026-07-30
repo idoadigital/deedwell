@@ -19,6 +19,10 @@ const PATHS: Record<string, string> = {
   bot: "M12 8V4H8 M4 8h16a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2z M9 14h.01 M15 14h.01",
   x: "M18 6 6 18 M6 6l12 12",
   columns: "M18 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2z M12 3v18",
+  send: "M22 2 11 13 M22 2 15 22l-4-9-9-4z",
+  bell: "M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9 M10.3 21a1.94 1.94 0 0 0 3.4 0",
+  leaf: "M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10z M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12",
+  chevron: "M6 9l6 6 6-6",
 };
 
 export function Icon({ name, size = 16 }: { name: string; size?: number }) {

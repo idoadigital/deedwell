@@ -12,7 +12,7 @@ export DATABASE_APP_URL=${DATABASE_APP_URL:-postgres://deedwell_app:${APP_DB_PAS
 export DATA_DIR=${DATA_DIR:-/root/deedwell/.data-demo}
 export GRANT_SOURCE=${GRANT_SOURCE:-grants_gov}
 export LOG_LEVEL=${LOG_LEVEL:-warn}
-if [ -n "${OPENAI_API_KEY:-}" ]; then
+if [ -n "${OPENAI_API_KEY:-}" ] && [ "${OPENAI_API_KEY}" != "paste-your-key-here" ]; then
   export MODEL_PROVIDER=${MODEL_PROVIDER:-openai}
   echo "Model provider: openai (${OPENAI_MODEL:-gpt-4o-mini})"
 else

@@ -310,7 +310,7 @@ export async function handleUserMessage(
         action: "workflow.started", entityType: "workflow_run", entityId: runId,
         metadata: { via: "chat", opportunityId },
       });
-      const kickoff = `Kicking off the application for "${pick.title}". Naomi is extracting the requirements, Grace will run eligibility, and Amara will score whether it's worth pursuing — you'll get each gate here as a message.`;
+      const kickoff = `Hi team! I'm kicking off our application for the ${pick.title} grant.\n\n📋 Collecting program requirements and application guidelines\n🔍 Checking eligibility for your organization\n👥 Assigning the right teammates to each section\n\nI'll keep everyone updated as we move forward. Let me know if there's anything I should add to our requirements list!`;
       if (createdChannelName) {
         await insertMessage(client, {
           tenantId: ids.tenantId, channelId: targetChannelId, authorKind: "agent",
