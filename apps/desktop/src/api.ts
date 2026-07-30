@@ -170,6 +170,12 @@ export const listAgents = () => call<{ agents: AgentInfo[] }>("GET", "/v1/agents
 
 // ---- chat -----------------------------------------------------------------
 
+export const getWorkspace = (orgId: string) =>
+  call<{
+    channels: ChannelInfo[]; teammates: TeammateInfo[]; runs: RunSummary[];
+    sites: SiteRow[]; members: MemberInfo[]; projects: Project[]; approvals: Approval[];
+  }>("GET", `/v1/orgs/${orgId}/workspace`);
+
 export const listChannels = (orgId: string) =>
   call<{ channels: ChannelInfo[]; teammates: TeammateInfo[] }>("GET", `/v1/orgs/${orgId}/channels`);
 

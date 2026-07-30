@@ -64,11 +64,20 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [panelMax]);
   const [refreshTick, setRefreshTick] = useState(0);
+  const [workspaceLoaded, setWorkspaceLoaded] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [seen, setSeen] = useState<Record<string, string>>(() => {
     try { return JSON.parse(localStorage.getItem(SEEN_KEY) ?? "{}"); } catch { return {}; }
   });
   const sseRef = useRef<SSESubscription | null>(null);
-  const refresh = useCallback(() => setRefreshTick((t) => t + 1), []);
+  // Coalesce refresh storms (SSE bursts) into one fetch per 250ms window.
+  const refresh = useCallback(() => {
+    if (debounceRef.current) return;
+    debounceRef.current = setTimeout(() => {
+      debounceRef.current = null;
+      setRefreshTick((t) => t + 1);
+    }, 250);
+  }, []);
 
   // ---- session / org bootstrap -------------------------------------------
   useEffect(() => {
@@ -85,30 +94,29 @@ export default function App() {
   useEffect(() => {
     if (!org) return;
     let cancelled = false;
-    Promise.all([
-      api.listChannels(org.id), api.listRuns(org.id), api.listSites(org.id),
-      api.listMembers(org.id), api.listProjects(org.id), api.listApprovals(org.id),
-    ]).then(([c, r, s, m, p, a]) => {
+    api.getWorkspace(org.id).then((w) => {
       if (cancelled) return;
-      setChannels(c.channels);
-      setTeammates(c.teammates);
-      setRuns(r.runs);
-      setSites(s.sites);
-      setMembers(m.members);
-      setProjects(p.projects);
-      setApprovals(a.approvals);
+      setChannels(w.channels);
+      setTeammates(w.teammates);
+      setRuns(w.runs);
+      setSites(w.sites);
+      setMembers(w.members);
+      setProjects(w.projects);
+      setApprovals(w.approvals);
+      setWorkspaceLoaded(true);
       // Startup: most recent conversation, else Maya's DM (spec §11).
       setActiveId((current) => {
-        if (current && c.channels.some((ch) => ch.id === current)) return current;
-        const withMessages = c.channels.filter((ch) => ch.last_message_at);
+        if (current && w.channels.some((ch) => ch.id === current)) return current;
+        const withMessages = w.channels.filter((ch) => ch.last_message_at);
         withMessages.sort((a, b) => (b.last_message_at! > a.last_message_at! ? 1 : -1));
         return withMessages[0]?.id
-          ?? c.channels.find((ch) => ch.key === "dm:core.executive_assistant")?.id
-          ?? c.channels[0]?.id ?? null;
+          ?? w.channels.find((ch) => ch.key === "dm:core.executive_assistant")?.id
+          ?? w.channels[0]?.id ?? null;
       });
     }).catch(() => undefined);
     return () => { cancelled = true; };
   }, [org, refreshTick]);
+  useEffect(() => { setWorkspaceLoaded(false); }, [org?.id]);
 
   // ---- realtime -----------------------------------------------------------
   useEffect(() => {
@@ -158,7 +166,7 @@ export default function App() {
 
   // ---- gates --------------------------------------------------------------
   if (!authed) return <LoginView onAuthed={() => setAuthed(true)} />;
-  if (!orgs) return <div className="auth-wrap"><p className="muted">Loading your workspace…</p></div>;
+  if (!orgs) return <LoadingScreen label="Signing you in…" />;
   if (!org) {
     return (
       <OrgSetupView
@@ -167,6 +175,10 @@ export default function App() {
         onCreated={() => api.me().then(({ organizations }) => setOrgs(organizations))}
       />
     );
+  }
+
+  if (!workspaceLoaded && channels.length === 0) {
+    return <LoadingScreen label={`Opening ${org.name}…`} />;
   }
 
   const mateMap = new Map(teammates.map((t) => [t.agentKey, t]));
@@ -574,6 +586,19 @@ function ChannelItem({
           {c.starred ? "★" : "☆"}
         </span>
       </button>
+    </div>
+  );
+}
+
+
+function LoadingScreen({ label }: { label: string }) {
+  return (
+    <div className="auth-wrap" role="status" aria-live="polite">
+      <div style={{ textAlign: "center" }}>
+        <div className="load-mark" aria-hidden="true"><Icon name="leaf" size={30} /></div>
+        <p className="muted" style={{ marginTop: 16 }}>{label}</p>
+        <div className="load-bar" aria-hidden="true"><span /></div>
+      </div>
     </div>
   );
 }

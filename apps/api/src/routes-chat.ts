@@ -65,6 +65,55 @@ export function registerChatRoutes(app: FastifyInstance, ctx: AppContext): void 
     return out;
   });
 
+  // Everything the workspace shell needs, in ONE round trip / transaction.
+  app.get("/v1/orgs/:orgId/workspace", async (req) => {
+    ctx.requireRole(req, "viewer");
+    const out = await ctx.inOrg(req, async (client) => {
+      await ensureChannels(client, req.orgId!);
+      const channels = await client.query(
+        `SELECT c.id, c.key, c.name, c.kind, c.project_id, c.agent_key, c.starred,
+                p.type AS project_type,
+                (SELECT MAX(created_at) FROM messages m WHERE m.channel_id = c.id) AS last_message_at
+         FROM channels c LEFT JOIN projects p ON p.id = c.project_id
+         ORDER BY c.kind, c.created_at`
+      );
+      const runs = await client.query(
+        `SELECT r.id, r.project_id, p.name AS project_name, r.definition, r.status,
+                r.current_step, r.steps_used, r.step_budget, r.last_error,
+                r.state->'waiting' AS waiting, r.created_at, r.updated_at
+         FROM workflow_runs r JOIN projects p ON p.id = r.project_id
+         ORDER BY r.updated_at DESC LIMIT 100`
+      );
+      const sites = await client.query(
+        `SELECT s.id, s.project_id, p.name AS project_name, s.slug, s.name, s.status,
+                s.theme, s.created_at,
+                (SELECT version FROM site_releases rr WHERE rr.id = s.preview_release_id) AS preview_version,
+                (SELECT version FROM site_releases rr WHERE rr.id = s.active_release_id) AS live_version,
+                (SELECT COUNT(*)::int FROM form_submissions fs WHERE fs.site_id = s.id) AS submissions
+         FROM sites s JOIN projects p ON p.id = s.project_id ORDER BY s.created_at DESC`
+      );
+      const members = await client.query(
+        `SELECT u.id, u.display_name, u.email, m.role
+         FROM organization_memberships m JOIN users u ON u.id = m.user_id ORDER BY u.display_name`
+      );
+      const projects = await client.query(
+        "SELECT id, name, type, status, created_at FROM projects ORDER BY created_at DESC"
+      );
+      const approvals = await client.query(
+        `SELECT a.id, a.run_id, a.kind, a.payload, a.status, a.note, a.created_at,
+                p.name AS project_name, r.project_id
+         FROM approvals a JOIN workflow_runs r ON r.id = a.run_id
+         JOIN projects p ON p.id = r.project_id
+         ORDER BY a.created_at DESC LIMIT 100`
+      );
+      return {
+        channels: channels.rows, runs: runs.rows, sites: sites.rows,
+        members: members.rows, projects: projects.rows, approvals: approvals.rows,
+      };
+    });
+    return { ...out, teammates: TEAMMATES };
+  });
+
   app.get("/v1/orgs/:orgId/channels", async (req) => {
     ctx.requireRole(req, "viewer");
     const { rows } = await ctx.inOrg(req, async (client) => {

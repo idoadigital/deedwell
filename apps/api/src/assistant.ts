@@ -57,6 +57,12 @@ export function channelSlug(name: string): string {
 }
 
 export async function ensureChannels(client: PoolClient, tenantId: string): Promise<void> {
+  // Fast path: when every default, DM, and project channel already exists,
+  // skip the ~20 idempotent inserts this used to run on EVERY listing.
+  const { rows: counts } = await client.query(
+    `SELECT (SELECT COUNT(*)::int FROM channels) AS c, (SELECT COUNT(*)::int FROM projects) AS p`
+  );
+  if (counts[0].c >= DEFAULT_CHANNELS.length + TEAMMATES.length + counts[0].p) return;
   for (const ch of DEFAULT_CHANNELS) {
     await client.query(
       `INSERT INTO channels (id, tenant_id, key, name, kind)
