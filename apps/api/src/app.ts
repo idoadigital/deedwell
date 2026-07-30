@@ -12,6 +12,7 @@ import { registerGrantFullRoutes } from "./routes-grants-full.js";
 import { registerWebsiteRoutes } from "./routes-website.js";
 import { registerChatRoutes } from "./routes-chat.js";
 import { registerHuddleRoutes } from "./routes-huddle.js";
+import { registerRtc } from "./rtc.js";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -67,7 +68,7 @@ export function buildApp(deps: Deps): FastifyInstance {
   // ---- authentication -----------------------------------------------------
   app.addHook("preHandler", async (req: FastifyRequest, _reply: FastifyReply) => {
     const url = req.url;
-    if (url.startsWith("/v1/auth/") || url === "/healthz") return;
+    if (url.startsWith("/v1/auth/") || url === "/healthz" || url.startsWith("/v1/rtc")) return;
 
     const header = req.headers.authorization;
     if (!header?.startsWith("Bearer ")) throw new HttpError(401, "Authentication required");
@@ -120,5 +121,6 @@ export function buildApp(deps: Deps): FastifyInstance {
   registerWebsiteRoutes(app, ctx);
   registerChatRoutes(app, ctx);
   registerHuddleRoutes(app, ctx);
+  registerRtc(app, ctx);
   return app;
 }

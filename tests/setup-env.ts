@@ -7,3 +7,4 @@ process.env.MODEL_PROVIDER ??= "mock";
 process.env.GRANT_SOURCE ??= "mock";
 process.env.LOG_LEVEL ??= "silent";
 process.env.VOICE_PROVIDER ??= "off";
+process.env.STT_URL ??= "ws://127.0.0.1:9";

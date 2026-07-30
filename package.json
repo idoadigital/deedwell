@@ -19,6 +19,7 @@
   "devDependencies": {
     "@types/node": "^20.17.0",
     "@types/pg": "^8.11.10",
+    "@types/ws": "^8",
     "tsx": "^4.19.2",
     "typescript": "^5.6.3",
     "vitest": "^2.1.8"
@@ -26,9 +27,11 @@
   "dependencies": {
     "@fastify/cors": "^9",
     "@fastify/formbody": "^7",
+    "@fastify/websocket": "^10",
     "fastify": "^4.28.1",
     "kokoro-js": "^1",
     "pg": "^8.13.1",
+    "ws": "^8",
     "zod": "^3.23.8"
   },
   "type": "module"

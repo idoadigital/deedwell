@@ -20,6 +20,9 @@ else
   echo "Model provider: mock (add OPENAI_API_KEY to .env for real language understanding)"
 fi
 
+# Streaming STT engine (memory-capped small model; see infrastructure/stt).
+docker start deedwell-stt >/dev/null 2>&1 || true
+
 # Stop anything already on our ports.
 ss -tlnp 2>/dev/null | grep -E ':(3001|4173|8788)' | grep -oP 'pid=\K[0-9]+' | sort -u | xargs -r kill || true
 sleep 1

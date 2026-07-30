@@ -195,6 +195,10 @@ export const startHuddle = (orgId: string, channelId: string) =>
   call<{ huddleId: string; resumed: boolean; participants?: string[]; voices: boolean }>(
     "POST", `/v1/orgs/${orgId}/huddles`, { channelId });
 
+export const rtcSession = (orgId: string, huddleId: string) =>
+  call<{ token: string; wsPath: string; sttAvailable: boolean; voices: boolean }>(
+    "POST", `/v1/orgs/${orgId}/huddles/${huddleId}/rtc-session`, {});
+
 export const endHuddle = (orgId: string, huddleId: string) =>
   call<{ ok: true }>("POST", `/v1/orgs/${orgId}/huddles/${huddleId}/end`, {});
 

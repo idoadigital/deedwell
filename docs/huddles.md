@@ -17,5 +17,25 @@ memory, and the milestone bridge all function mid-huddle. Nothing is a parallel 
 - **Ending** ("wrap up" or the button): the huddle closes with a summary message in the
   channel — exchange count, decisions made during the huddle (from real approval records),
   and the transcript. Audited start/end.
-- **Deferred honestly**: server-side STT (whisper.cpp is the planned path), multi-human
-  huddles/WebRTC, barge-in interruption of playback.
+## Realtime session (upgrade)
+
+- **Transport**: WebSocket audio session gated by **ephemeral single-use tokens** (5-min TTL,
+  hashed at rest, redeemed atomically). Stated plainly: this is WS, not an SFU/WebRTC stack —
+  the token + event contract is transport-agnostic so an SFU can replace the pipe later.
+- **Streaming STT**: Vosk small-English model in a **memory-capped container** (700MB limit,
+  ~140MB actual — the initial large-model attempt OOM-killed the cluster's Traefik and was
+  replaced). True partials stream live; finals drive the existing agent pipeline. Verified
+  closed-loop: Kokoro-spoken audio transcribed verbatim by Vosk.
+- **Orchestrator**: ONE active speaker, serialized replies (no crosstalk). **Barge-in**: user
+  speech (a partial arriving) or an interrupt frame cancels remaining TTS sentences mid-reply;
+  sentence-level TTS streaming makes interruption near-immediate.
+- **Context packager**: unchanged — the existing buildContext (transcript, FTS retrieval,
+  artifacts, memory) feeds every huddle reply.
+- **Persistence** (migration 0008, tenant-scoped RLS): `huddle_sessions`,
+  `transcript_segments`, `huddle_events` (session_started/ended, transcript_final,
+  speaker_change, interruption, tool_call, stt_unavailable) — streamed to the client and stored.
+- **UI**: same stage — tiles/captions/transcript — now event-driven, with live partial line,
+  streaming mic (AudioWorklet → 16k PCM16), mute/unmute, and honest degraded modes
+  (stt_unavailable → type; voice off → captions).
+- **Deferred honestly**: SFU/WebRTC transport, multi-human huddles, echo-cancellation tuning
+  beyond the browser's built-ins.
