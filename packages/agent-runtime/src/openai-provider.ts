@@ -24,6 +24,8 @@ export class OpenAiProvider implements ModelProvider {
   }
 
   async complete(request: ModelRequest): Promise<ModelResponse> {
+    const requestId = Math.random().toString(36).slice(2, 10);
+    const started = Date.now();
     const user = [
       `TASK: ${request.task}`,
       ``,
@@ -61,7 +63,12 @@ export class OpenAiProvider implements ModelProvider {
       usage?: { total_tokens?: number };
     };
     const text = payload.choices[0]?.message?.content ?? "";
-    return { text, tokensEstimated: payload.usage?.total_tokens ?? Math.ceil(text.length / 4) };
+    const tokens = payload.usage?.total_tokens ?? Math.ceil(text.length / 4);
+    console.log(JSON.stringify({
+      at: "model_request", requestId, provider: "openai", model: this.model,
+      schema: request.outputSchemaRef, ms: Date.now() - started, tokens, ok: true,
+    }));
+    return { text, tokensEstimated: tokens };
   }
 }
 

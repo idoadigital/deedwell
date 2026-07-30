@@ -70,6 +70,16 @@ describe("website build → preview → publish", () => {
     runId = created.body.runId;
     await env.deps.engine.drain("test-worker");
 
+    // Stage 2: the brief must be approved before anything is built.
+    const brief = await pendingApproval(s.orgId, s.token, runId);
+    expect(brief.approval.kind).toBe("website_brief");
+    const preBuild = await api(env.app, "GET", `/v1/orgs/${s.orgId}/sites/${siteId}`, { token: s.token });
+    expect(preBuild.body.releases).toHaveLength(0); // nothing built yet
+    await api(env.app, "POST", `/v1/orgs/${s.orgId}/approvals/${brief.approval.id}`, {
+      token: s.token, body: { decision: "approved" },
+    });
+    await env.deps.engine.drain("test-worker");
+
     const { run, approval } = await pendingApproval(s.orgId, s.token, runId);
     expect(run.body.run.status).toBe("waiting_approval");
     expect(approval.kind).toBe("publish_site");
@@ -223,6 +233,34 @@ describe("website build → preview → publish", () => {
   });
 });
 
+describe("website discovery gate", () => {
+  it("asks discovery questions instead of building when facts are missing", async () => {
+    const { token } = await registerUser(env.app, "bare-org@example.org");
+    const orgId = await createOrg(env.app, token, "bare-web-org");
+    const project = await api(env.app, "POST", `/v1/orgs/${orgId}/projects`, {
+      token, body: { name: "Site", type: "website" },
+    });
+    const created = await api(env.app, "POST",
+      `/v1/orgs/${orgId}/projects/${project.body.projectId}/website`,
+      { token, body: { siteName: "Bare Org", slug: "bare-org" } });
+    await env.deps.engine.drain("test-worker");
+    const run = await api(env.app, "GET", `/v1/orgs/${orgId}/runs/${created.body.runId}`, { token });
+    expect(run.body.run.status).toBe("waiting_for_info");
+    expect(run.body.run.waiting.payload).toContain("mission");
+    // Nothing was generated or built before discovery completed.
+    const site = await api(env.app, "GET", `/v1/orgs/${orgId}/sites/${created.body.siteId}`, { token });
+    expect(site.body.pages).toHaveLength(0);
+    expect(site.body.releases).toHaveLength(0);
+  });
+
+  it("serves the site's own 404 page with a real 404 status", async () => {
+    const res = await routerGet("/preview/riverbend/no-such-page/");
+    expect(res.statusCode).toBe(404);
+    expect(res.body).toContain("Page not found");
+    expect(res.body).toContain("Riverbend");
+  });
+});
+
 describe("website security", () => {
   it("hostile org facts cannot inject markup into the rendered site", async () => {
     const { token, orgId, projectId } = await setupOrg("xss-org");
@@ -234,6 +272,12 @@ describe("website security", () => {
       token, body: { siteName: "XSS Test", slug: "xss-test" },
     });
     expect(created.status).toBe(201);
+    await env.deps.engine.drain("test-worker");
+    const runX = await api(env.app, "GET", `/v1/orgs/${orgId}/runs/${created.body.runId}`, { token });
+    const briefX = runX.body.approvals.find((a: any) => a.status === "pending");
+    await api(env.app, "POST", `/v1/orgs/${orgId}/approvals/${briefX.id}`, {
+      token, body: { decision: "approved" },
+    });
     await env.deps.engine.drain("test-worker");
 
     const res = await routerGet("/preview/xss-test/");

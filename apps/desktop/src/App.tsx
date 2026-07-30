@@ -48,7 +48,18 @@ export default function App() {
   const [huddleNote, setHuddleNote] = useState(false);
   const [sidePanel, setSidePanel] = useState<"work" | "site" | null>(null);
   const [runDetail, setRunDetail] = useState<RunDetail | null>(null);
-  const [panelWidth, setPanelWidth] = useState(460);
+  const [panelWidth, setPanelWidth] = useState(() => {
+    const saved = Number(localStorage.getItem("deedwell.panelW"));
+    return saved >= 320 ? saved : 460;
+  });
+  const [panelMax, setPanelMax] = useState(false);
+  useEffect(() => { localStorage.setItem("deedwell.panelW", String(panelWidth)); }, [panelWidth]);
+  useEffect(() => {
+    if (!panelMax) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setPanelMax(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [panelMax]);
   const [refreshTick, setRefreshTick] = useState(0);
   const [seen, setSeen] = useState<Record<string, string>>(() => {
     try { return JSON.parse(localStorage.getItem(SEEN_KEY) ?? "{}"); } catch { return {}; }
@@ -185,6 +196,28 @@ export default function App() {
 
   const latestRunStatus = activeRuns[0]?.status;
   const pendingCount = approvals.filter((a) => a.status === "pending").length;
+  const STEP_LABELS: Record<string, string> = {
+    parse_document: "Naomi is reading the announcement…",
+    extract_requirements: "Naomi is extracting the requirements…",
+    eligibility_check: "Grace is verifying eligibility…",
+    bid_no_bid: "Amara is checking funding fit…",
+    plan_application: "Daniel is planning the application…",
+    draft_sections: "Sophia is preparing a draft…",
+    build_budget: "Michael is building the budget…",
+    build_logic_model: "Ingrid is shaping the logic model…",
+    review_panel: "The reviewer panel is scoring the draft…",
+    final_compliance: "Naomi is running compliance checks…",
+    export_full: "Maya is assembling the package…",
+    discovery: "Ava is reviewing what we know about you…",
+    intake_brief: "Ava is drafting the website brief…",
+    generate_content: "Emma is writing the pages…",
+    apply_patch: "Noah is applying your change…",
+    build_release: "James is building and testing the preview…",
+  };
+  const workingRun = activeRuns.find((r) => ["pending", "running"].includes(r.status));
+  const working = workingRun
+    ? { runId: workingRun.id, label: STEP_LABELS[workingRun.current_step] ?? "The team is working…" }
+    : null;
   const statusLine = activeRuns[0]
     ? activeRuns[0].definition.startsWith("website")
       ? latestRunStatus === "completed" ? "Website up to date" : "Website work in progress"
@@ -369,13 +402,20 @@ export default function App() {
                   refreshTick={refreshTick} refresh={refresh}
                   onOpenChannel={openChannel}
                   onOpenWork={() => setSidePanel("work")}
+                  working={working}
+                  onCancelRun={(runId) => { void api.cancelRun(org.id, runId).then(refresh).catch(() => undefined); }}
                 />
               </div>
               {/* ---- contextual artifact panel (spec §6) ---- */}
               {sidePanel && (
                 <div
                   className="panel-grip" role="separator" aria-orientation="vertical"
-                  aria-label="Resize panel"
+                  aria-label="Resize panel" tabIndex={0}
+                  onDoubleClick={() => setPanelWidth(460)}
+                  onKeyDown={(e) => {
+                    if (e.key === "ArrowLeft") setPanelWidth((w) => Math.min(w + 24, window.innerWidth * 0.6));
+                    if (e.key === "ArrowRight") setPanelWidth((w) => Math.max(w - 24, 320));
+                  }}
                   onPointerDown={(e) => {
                     const startX = e.clientX;
                     const startW = panelWidth;
@@ -391,7 +431,8 @@ export default function App() {
                 />
               )}
               {sidePanel && (
-                <aside className="artifact-side" aria-label="Artifacts" style={{ width: panelWidth }}>
+                <aside className="artifact-side" aria-label="Artifacts"
+                  style={{ width: panelMax ? "100%" : panelWidth }}>
                   <div className="artifact-side-head">
                     <strong style={{ fontSize: 13 }}>
                       {sidePanel === "site" ? "Live website" : "Work & artifacts"}
@@ -405,7 +446,13 @@ export default function App() {
                         open in browser ↗
                       </a>
                     )}
-                    <button className="icon-btn" style={{ marginLeft: "auto" }} aria-label="Close panel" onClick={() => setSidePanel(null)}>
+                    <button className="icon-btn" style={{ marginLeft: "auto" }}
+                      aria-label={panelMax ? "Exit full view (Esc)" : "Full view"}
+                      title={panelMax ? "Exit full view (Esc)" : "Full view"}
+                      onClick={() => setPanelMax((v) => !v)}>
+                      <Icon name="columns" size={15} />
+                    </button>
+                    <button className="icon-btn" aria-label="Close panel" onClick={() => { setSidePanel(null); setPanelMax(false); }}>
                       <Icon name="x" size={15} />
                     </button>
                   </div>

@@ -178,10 +178,16 @@ export const starChannel = (orgId: string, channelId: string, starred: boolean) 
 export const listMessages = (orgId: string, channelId: string) =>
   call<{ messages: ChatMessage[] }>("GET", `/v1/orgs/${orgId}/channels/${channelId}/messages`);
 
-export const sendMessage = (orgId: string, channelId: string, body: string, fileId?: string | null) =>
+export const sendMessage = (
+  orgId: string, channelId: string, body: string,
+  fileId?: string | null, clientKey?: string | null
+) =>
   call<{ messages: ChatMessage[] }>("POST", `/v1/orgs/${orgId}/channels/${channelId}/messages`, {
-    body, fileId: fileId ?? null,
+    body, fileId: fileId ?? null, clientKey: clientKey ?? null,
   });
+
+export const cancelRun = (orgId: string, runId: string) =>
+  call<{ ok: true }>("POST", `/v1/orgs/${orgId}/runs/${runId}/cancel`, {});
 
 export const uploadChatFile = (
   orgId: string, channelId: string,

@@ -198,8 +198,16 @@ export async function handleUserMessage(
   ids: { tenantId: string; userId: string },
   channel: ChannelRow,
   body: string,
-  fileId: string | null
+  fileId: string | null,
+  clientKey?: string | null
 ): Promise<Array<Record<string, unknown>>> {
+  if (clientKey) {
+    const dup = await client.query(
+      `SELECT 1 FROM messages WHERE channel_id = $1 AND metadata->>'clientKey' = $2 LIMIT 1`,
+      [channel.id, clientKey]
+    );
+    if (dup.rows[0]) return []; // idempotent resend — already handled
+  }
   const out: Array<Record<string, unknown>> = [];
   // In a DM, the teammate you're talking to answers; elsewhere Maya coordinates.
   const persona = channel.kind === "dm" && channel.agent_key ? channel.agent_key : executiveAssistant.agentKey;
@@ -212,7 +220,8 @@ export async function handleUserMessage(
 
   out.push(await insertMessage(client, {
     tenantId: ids.tenantId, channelId: channel.id, authorKind: "user",
-    authorUser: ids.userId, body, metadata: fileId ? { fileId } : {},
+    authorUser: ids.userId, body,
+    metadata: { ...(fileId ? { fileId } : {}), ...(clientKey ? { clientKey } : {}) },
   }));
 
   const context = await buildContext(client, ids.tenantId, channel);
@@ -539,8 +548,11 @@ async function bridgeMessage(
       const payload = approval.rows[0].payload as Record<string, unknown>;
       agent = kind === "bid_decision" ? "grant.funding_strategist"
         : kind === "publish_site" ? "website.qa_deployment"
+        : kind === "website_brief" ? "website.digital_strategist"
         : kind === "final_export" ? "grant.reviewer_panel" : "grant.writer";
-      body = kind === "bid_decision"
+      body = kind === "website_brief"
+        ? `I've put the website brief together — goals, audiences, sitemap, and visual direction. Open it in the artifact panel, then say "approve" to start the build or "pass" and tell me what to change. Nothing gets built until you're happy with the plan.`
+        : kind === "bid_decision"
         ? `Bid assessment ready: ${String(payload.recommendation ?? "").replace(/_/g, " ")} (${payload.total}/100). ${payload.rationale ?? ""}\nSay "approve" to pursue it or "reject" to pass.`
         : kind === "publish_site"
           ? `The website release is built and previewable${payload.version ? ` (v${payload.version})` : ""}. Say "approve" to publish or "reject" to hold it.`

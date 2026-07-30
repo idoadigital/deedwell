@@ -203,10 +203,28 @@ async function publishGate(ctx: Ctx, siteId: string): Promise<StepResult> {
 export function buildWebsiteBuildWorkflow(): WorkflowDefinition<WebsiteServices> {
   return {
     name: WEBSITE_BUILD_WORKFLOW,
-    version: 1,
-    initialStep: "intake_brief",
-    stepBudget: 20,
+    version: 2,
+    initialStep: "discovery",
+    stepBudget: 25,
     steps: {
+      // Stage 1 (spec §5): confirm what we know, ask only for what's missing.
+      // No page is generated until the essentials exist and the brief is approved.
+      async discovery(ctx): Promise<StepResult> {
+        const facts = await fetchFacts(ctx, digitalStrategist);
+        const usable = new Set(
+          facts.filter((f) => f.status === "verified" || f.status === "user_certified").map((f) => f.key)
+        );
+        const needed = ["mission", "programs", "beneficiaries", "service_area", "headquarters"];
+        const missing = needed.filter((k) => !usable.has(k));
+        if (missing.length) {
+          return {
+            state: { ...ctx.state, missingFacts: missing },
+            wait: { kind: "info", payload: { missingFacts: missing, context: "website_discovery" }, resumeStep: "discovery" },
+          };
+        }
+        return { state: ctx.state, next: "intake_brief" };
+      },
+
       async intake_brief(ctx): Promise<StepResult> {
         const input = BuildInput.parse(ctx.state.input);
         const facts = await fetchFacts(ctx, digitalStrategist);
@@ -244,7 +262,38 @@ export function buildWebsiteBuildWorkflow(): WorkflowDefinition<WebsiteServices>
            digitalStrategist.agentKey, `Brief with ${result.output.sitemap.length}-page sitemap`]
         );
         await ctx.client.query("UPDATE artifacts SET current_version = $2 WHERE id = $1", [artifactId, version]);
-        return { state: { ...ctx.state, brief: result.output }, next: "generate_content" };
+        // Stage 2 (spec §5): the brief must be approved before any build starts.
+        const approvalId = uuidv7();
+        await ctx.client.query(
+          `INSERT INTO approvals (id, tenant_id, run_id, kind, payload) VALUES ($1,$2,$3,'website_brief',$4)`,
+          [approvalId, ctx.tenantId, ctx.runId, JSON.stringify({
+            artifactId, sitemap: result.output.sitemap.map((s) => s.title),
+          })]
+        );
+        return {
+          state: { ...ctx.state, brief: result.output, briefArtifactId: artifactId },
+          wait: { kind: "approval", payload: { approvalId, kind: "website_brief" }, resumeStep: "brief_gate" },
+        };
+      },
+
+      async brief_gate(ctx): Promise<StepResult> {
+        const { rows } = await ctx.client.query(
+          `SELECT id, status FROM approvals WHERE run_id = $1 AND kind = 'website_brief'
+           ORDER BY created_at DESC LIMIT 1`,
+          [ctx.runId]
+        );
+        const approval = rows[0];
+        if (!approval || approval.status === "pending") {
+          return {
+            state: ctx.state,
+            wait: { kind: "approval", payload: { approvalId: approval?.id ?? null }, resumeStep: "brief_gate" },
+          };
+        }
+        if (approval.status === "rejected") {
+          // Honest stop: the user shapes the brief conversationally and re-asks.
+          return { state: { ...ctx.state, briefRejected: true }, complete: true };
+        }
+        return { state: ctx.state, next: "generate_content" };
       },
 
       async generate_content(ctx): Promise<StepResult> {

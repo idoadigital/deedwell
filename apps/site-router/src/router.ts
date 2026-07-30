@@ -107,7 +107,13 @@ export function buildSiteRouter(deps: SiteRouterDeps): FastifyInstance {
         .header("cache-control", mode === "live" ? "public, max-age=60" : "no-store")
         .send(content);
     } catch {
-      return reply.status(404).type("text/html; charset=utf-8").send(NOT_FOUND_PAGE);
+      // Serve the site's own 404 page (real 404 status — never redirect home).
+      try {
+        const custom = await deps.storage.get(`${site.releasePrefix}/404.html`);
+        return reply.status(404).type("text/html; charset=utf-8").send(custom);
+      } catch {
+        return reply.status(404).type("text/html; charset=utf-8").send(NOT_FOUND_PAGE);
+      }
     }
   }
 

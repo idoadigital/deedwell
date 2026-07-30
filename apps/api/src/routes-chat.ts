@@ -13,6 +13,58 @@ import { TEAMMATES } from "./teammates.js";
 import { HttpError, type AppContext } from "./app.js";
 
 export function registerChatRoutes(app: FastifyInstance, ctx: AppContext): void {
+  // Cancel a run that hasn't finished (safe: steps are transactional).
+  app.post("/v1/orgs/:orgId/runs/:runId/cancel", async (req) => {
+    ctx.requireRole(req, "member");
+    const { runId } = req.params as { runId: string };
+    await ctx.inOrg(req, async (client) => {
+      const { rowCount } = await client.query(
+        `UPDATE workflow_runs SET status = 'cancelled'
+         WHERE id = $1 AND status IN ('pending','running','waiting_for_info','waiting_approval','suspended_budget')`,
+        [runId]
+      );
+      if (!rowCount) throw new HttpError(409, "Run is already finished");
+      await audit(client, {
+        tenantId: req.orgId!, actorUser: req.userId, action: "workflow.cancelled",
+        entityType: "workflow_run", entityId: runId, metadata: {},
+      });
+    });
+    return { ok: true };
+  });
+
+  // Secure diagnostics (spec §2): component health, no secrets/prompts/content.
+  app.get("/v1/diagnostics", async () => {
+    const out: Record<string, unknown> = {
+      modelProviderConfigured: ctx.deps.provider.name !== "mock",
+      modelProvider: ctx.deps.provider.name,
+      grantSource: ctx.deps.grantSource.name,
+    };
+    try {
+      await ctx.deps.appPool.query("SELECT 1");
+      out.database = "healthy";
+    } catch { out.database = "unhealthy"; }
+    try {
+      const { rows } = await ctx.deps.adminPool.query(
+        "SELECT COUNT(*)::int AS n FROM workflow_runs WHERE status IN ('pending','running')"
+      );
+      out.workflowEngine = "healthy";
+      out.activeRuns = rows[0].n;
+    } catch { out.workflowEngine = "unhealthy"; }
+    if (ctx.deps.provider.name === "openai") {
+      try {
+        const res = await fetch(
+          `${process.env.OPENAI_BASE_URL ?? "https://api.openai.com/v1"}/models`,
+          { headers: { authorization: `Bearer ${process.env.OPENAI_API_KEY}` }, signal: AbortSignal.timeout(5000) }
+        );
+        out.providerConnectivity = res.ok ? "healthy" : `unhealthy (${res.status})`;
+      } catch { out.providerConnectivity = "unhealthy (unreachable)"; }
+    } else {
+      out.providerConnectivity = "n/a (mock)";
+    }
+    out.realtime = "in-process";
+    return out;
+  });
+
   app.get("/v1/orgs/:orgId/channels", async (req) => {
     ctx.requireRole(req, "viewer");
     const { rows } = await ctx.inOrg(req, async (client) => {
@@ -146,7 +198,8 @@ export function registerChatRoutes(app: FastifyInstance, ctx: AppContext): void 
         { tenantId: req.orgId!, userId: req.userId! },
         channel.rows[0] as ChannelRow,
         input.body,
-        input.fileId ?? null
+        input.fileId ?? null,
+        input.clientKey ?? null
       );
     });
     // Wake any live listeners (SSE) in this org.

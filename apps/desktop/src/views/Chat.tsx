@@ -25,6 +25,8 @@ export function ChatView({
   refresh,
   onOpenChannel,
   onOpenWork,
+  working,
+  onCancelRun,
 }: {
   org: Organization;
   channel: ChannelInfo;
@@ -33,10 +35,14 @@ export function ChatView({
   refresh: () => void;
   onOpenChannel: (channelId: string) => void;
   onOpenWork: () => void;
+  working?: { runId: string; label: string } | null;
+  onCancelRun?: (runId: string) => void;
 }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
+  const [awaitingReply, setAwaitingReply] = useState(false);
+  const [atBottom, setAtBottom] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -56,22 +62,36 @@ export function ChatView({
   }, [org.id, channel.id, refreshTick]);
 
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
-  }, [messages.length, channel.id]);
+    // Smooth auto-scroll that doesn't fight the user (spec §3).
+    if (atBottom) scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+  }, [messages.length, channel.id, awaitingReply, atBottom]);
 
   async function send(body: string, fileId?: string | null) {
     if (!body.trim() || busy) return;
     setBusy(true);
+    setAwaitingReply(true); // real request in flight — this is not a fake delay
     setError(null);
+    const clientKey = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    // Optimistic render of the user's own message; reconciled with the
+    // server copy (same clientKey) when the response lands.
+    const temp: ChatMessage = {
+      id: `tmp-${clientKey}`, author_kind: "user", author_user: "you",
+      author_agent: null, author_name: null, body: body.trim(),
+      metadata: {}, created_at: new Date().toISOString(),
+    };
+    setMessages((prev) => [...prev, temp]);
+    setText("");
     try {
-      const { messages: created } = await api.sendMessage(org.id, channel.id, body.trim(), fileId);
-      setMessages((prev) => [...prev, ...created]);
-      setText("");
+      const { messages: created } = await api.sendMessage(org.id, channel.id, body.trim(), fileId, clientKey);
+      setMessages((prev) => [...prev.filter((m) => m.id !== temp.id), ...created]);
       refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Message failed to send");
+      setMessages((prev) => prev.filter((m) => m.id !== temp.id));
+      setText(body); // let the user retry without retyping
+      setError(err instanceof Error ? err.message : "Message failed to send — try again");
     } finally {
       setBusy(false);
+      setAwaitingReply(false);
     }
   }
 
@@ -103,7 +123,13 @@ export function ChatView({
 
   return (
     <>
-      <div className="chat-scroll" ref={scrollRef}>
+      <div
+        className="chat-scroll" ref={scrollRef}
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          setAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 80);
+        }}
+      >
         {messages.map((m, i) => (
           <Message
             key={m.id}
@@ -120,7 +146,44 @@ export function ChatView({
         {messages.length === 0 && (
           <p className="empty">No messages yet — say hello.</p>
         )}
+        {awaitingReply && (
+          <div className="chat-msg" aria-live="polite">
+            <Avatar
+              id={channel.kind === "dm" ? channel.agent_key ?? "dm" : "core.executive_assistant"}
+              name="Working" size={44} presence
+            />
+            <div className="m-body">
+              <div className="m-head"><span className="m-name">
+                {channel.kind === "dm" ? channel.name : "Maya"}
+              </span><span className="m-role">is thinking…</span></div>
+              <div className="typing-dots" aria-label="Waiting for reply"><span /><span /><span /></div>
+            </div>
+          </div>
+        )}
       </div>
+      {!atBottom && (
+        <button
+          className="jump-latest" aria-label="Jump to latest messages"
+          onClick={() => {
+            setAtBottom(true);
+            scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+          }}
+        >
+          ↓ Latest
+        </button>
+      )}
+      {working && (
+        <div className="working-strip" aria-live="polite">
+          <span className="presence working" style={{ position: "static" }} aria-hidden="true" />
+          {working.label}
+          {onCancelRun && (
+            <button className="ghost" style={{ minHeight: 0, padding: "2px 10px", marginLeft: "auto" }}
+              onClick={() => onCancelRun(working.runId)}>
+              Cancel
+            </button>
+          )}
+        </div>
+      )}
       <div className="composer-wrap">
         {error && <p className="error-text" role="alert">{error}</p>}
         <form

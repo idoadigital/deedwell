@@ -520,6 +520,8 @@ export type IntentOutput = z.infer<typeof IntentOutput>;
 export const PostMessageInput = z.object({
   body: z.string().min(1).max(4000),
   fileId: z.string().uuid().nullable().optional(),
+  /** Client-generated idempotency key: resends with the same key are no-ops. */
+  clientKey: z.string().max(64).nullable().optional(),
 });
 
 export const RecordOutcomeInput = z.object({

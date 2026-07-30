@@ -113,7 +113,7 @@ describe("workspace conversations", () => {
     await drainAll();
     const msgs = await messagesOf(grantChannelId);
     // Kickoff + Grace's eligibility pause asking for facts.
-    expect(msgs.some((m) => m.body.includes("Kicking off the application"))).toBe(true);
+    expect(msgs.some((m) => m.body.includes("kicking off our application"))).toBe(true);
     const ask = msgs.find((m) => m.metadata.infoRequest);
     expect(ask).toBeTruthy();
     expect(ask!.metadata.infoRequest).toContain("entity_type");
@@ -143,14 +143,38 @@ describe("workspace conversations", () => {
     expect(done.some((m) => m.body.includes("never guaranteed"))).toBe(true);
   });
 
-  it("builds a website from a sentence, in its own channel", async () => {
+  it("builds a website from a sentence: discovery → brief approval → build", async () => {
     const res = await send(mayaDm.id, "Please build a website for our organization");
     const reply = res.body.messages.at(-1);
     const siteChannel = reply.metadata.goToChannelId as string;
     expect(siteChannel).toBeTruthy();
     await drainAll();
-    const msgs = await messagesOf(siteChannel);
+    let msgs = await messagesOf(siteChannel);
+    // Discovery first: the team asks for what it doesn't know.
+    const ask = msgs.find((m) => m.metadata.infoRequest);
+    expect(ask).toBeTruthy();
+    await send(siteChannel, "programs: Community outreach\nbeneficiaries: Local families\nservice_area: Springfield\nheadquarters: 1 Main St");
+    await drainAll();
+    msgs = await messagesOf(siteChannel);
+    // Then the brief gate — before anything is built.
+    expect(msgs.some((m) => m.metadata.approvalKind === "website_brief")).toBe(true);
+    expect(msgs.some((m) => m.metadata.approvalKind === "publish_site")).toBe(false);
+    await send(siteChannel, "approve");
+    await drainAll();
+    msgs = await messagesOf(siteChannel);
     expect(msgs.some((m) => m.metadata.approvalKind === "publish_site")).toBe(true);
+  });
+
+  it("deduplicates resent messages via clientKey (idempotency)", async () => {
+    const key = "test-idem-key-1";
+    const first = await api(env.app, "POST", `/v1/orgs/${orgId}/channels/${mayaDm.id}/messages`, {
+      token, body: { body: "hello again", clientKey: key },
+    });
+    expect(first.body.messages.length).toBeGreaterThan(0);
+    const retry = await api(env.app, "POST", `/v1/orgs/${orgId}/channels/${mayaDm.id}/messages`, {
+      token, body: { body: "hello again", clientKey: key },
+    });
+    expect(retry.body.messages).toHaveLength(0); // no duplicate work
   });
 
   it("keeps conversations tenant-isolated", async () => {

@@ -185,6 +185,11 @@ ${input.pages.map((p) => `  <url><loc>${esc(pageUrl(p.slug))}</loc></url>`).join
   });
   files.push({ path: "robots.txt", contentType: "text/plain", content: "User-agent: *\nAllow: /\n" });
   files.push({
+    path: "404.html",
+    contentType: "text/html; charset=utf-8",
+    content: `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Page not found — ${esc(input.siteName)}</title><meta name="description" content="Page not found."><style>${style}</style></head><body><a class="skip" href="#main">Skip to main content</a><main id="main"><div class="hero"><h1>Page not found</h1><p>That page doesn't exist here. It may have moved.</p><a class="button" href="/">Back to home</a></div></main></body></html>`,
+  });
+  files.push({
     path: "thanks/index.html",
     contentType: "text/html; charset=utf-8",
     content: `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Thank you — ${esc(input.siteName)}</title><meta name="description" content="Thank you for your message."><style>${style}</style></head><body><a class="skip" href="#main">Skip to main content</a><main id="main"><div class="hero"><h1>Thank you</h1><p>Your message has been received.</p><a class="button" href="/">Back to home</a></div></main></body></html>`,
