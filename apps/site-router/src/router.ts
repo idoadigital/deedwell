@@ -39,7 +39,7 @@ const CONTENT_TYPES: Record<string, string> = {
 // Deedwell app origins only; everyone else is still refused.
 const FRAME_ANCESTORS =
   process.env.FRAME_ANCESTORS ??
-  "http://178.104.188.229:4173 http://localhost:4173 http://localhost:5173 tauri://localhost http://tauri.localhost";
+  "'self' http://178.104.188.229:4173 http://localhost:4173 http://localhost:5173 tauri://localhost http://tauri.localhost";
 
 const SECURITY_HEADERS: Record<string, string> = {
   "content-security-policy":

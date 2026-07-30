@@ -34,6 +34,7 @@ export function HuddleView({
   const [busy, setBusy] = useState(false);
   const [listening, setListening] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [audioBlocked, setAudioBlocked] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const recRef = useRef<{ stop: () => void } | null>(null);
   const queueRef = useRef<Promise<void>>(Promise.resolve());
@@ -76,7 +77,11 @@ export function HuddleView({
               audioRef.current = audio;
               audio.onended = () => { URL.revokeObjectURL(audio.src); resolve(); };
               audio.onerror = () => resolve();
-              void audio.play().catch(() => resolve());
+              audio.play().then(() => setAudioBlocked(false)).catch(() => {
+                // Autoplay policy blocked sound — say so instead of silence.
+                setAudioBlocked(true);
+                resolve();
+              });
             });
           } catch {
             // Voice unavailable → captions carry the huddle; no fake audio.
@@ -131,7 +136,7 @@ export function HuddleView({
     const RecCtor = SpeechRec as new () => {
       lang: string; interimResults: boolean; continuous: boolean;
       onresult: (e: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void;
-      onend: () => void; onerror: () => void;
+      onend: () => void; onerror: (e: { error?: string }) => void;
       start: () => void; stop: () => void;
     };
     const rec = new RecCtor();
@@ -143,7 +148,12 @@ export function HuddleView({
       if (said.trim()) void say(said);
     };
     rec.onend = () => setListening(false);
-    rec.onerror = () => setListening(false);
+    rec.onerror = (e: { error?: string }) => {
+      setListening(false);
+      if (e?.error === "not-allowed" || !window.isSecureContext) {
+        setError("The microphone needs a secure (https) connection — use the secure link, or type instead.");
+      }
+    };
     recRef.current = rec;
     rec.start();
     setListening(true);
@@ -160,6 +170,15 @@ export function HuddleView({
           <span className="status-dot" aria-hidden="true" />
           <strong>Huddle · #{channel.name}</strong>
           {!voices && <span className="pill amber">captions only — voice unavailable</span>}
+          {audioBlocked && (
+            <button className="pill amber" style={{ border: "none", cursor: "pointer" }}
+              onClick={() => { setAudioBlocked(false); }}>
+              🔇 sound blocked by the browser — click here, then send again
+            </button>
+          )}
+          {typeof window !== "undefined" && !window.isSecureContext && (
+            <span className="pill amber" title="Voice input requires https">insecure connection — mic disabled</span>
+          )}
           <button className="danger" style={{ marginLeft: "auto", minHeight: 0, padding: "6px 14px" }} onClick={endHuddle}>
             End huddle
           </button>

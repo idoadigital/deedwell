@@ -21,8 +21,13 @@ import type {
   SearchHit,
 } from "./types";
 
+const envUrl = (key: string): string | undefined =>
+  (import.meta as { env?: Record<string, string> }).env?.[key];
+
+/** Same-origin paths behind the secure proxy; direct dev ports otherwise. */
+const onDirectDevPort = typeof window !== "undefined" && ["4173", "5173"].includes(window.location.port);
 export const API_URL: string =
-  (import.meta as { env?: Record<string, string> }).env?.VITE_API_URL ?? "http://localhost:3000";
+  envUrl("VITE_API_URL") ?? (onDirectDevPort ? "http://178.104.188.229:3001" : "/api");
 
 const TOKEN_KEY = "deedwell.session";
 
@@ -269,8 +274,7 @@ export const listApplications = (orgId: string) =>
 // ---- Phase 4: websites ----------------------------------------------------
 
 export const SITE_ROUTER_URL: string =
-  (import.meta as { env?: Record<string, string> }).env?.VITE_SITE_ROUTER_URL ??
-  "http://localhost:8788";
+  envUrl("VITE_SITE_ROUTER_URL") ?? (onDirectDevPort ? "http://178.104.188.229:8788" : "/sites");
 
 export const createWebsite = (
   orgId: string,

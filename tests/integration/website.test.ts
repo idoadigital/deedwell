@@ -103,7 +103,7 @@ describe("website build → preview → publish", () => {
     expect(res.headers["content-security-policy"]).toContain("default-src 'none'");
     // Framing allowed ONLY for the app origins (artifact-panel preview),
     // still refused for everyone else.
-    expect(res.headers["content-security-policy"]).toContain("frame-ancestors http");
+    expect(res.headers["content-security-policy"]).toContain("frame-ancestors 'self'");
     expect(res.headers["content-security-policy"]).not.toContain("frame-ancestors 'none'");
     expect(res.headers["x-frame-options"]).toBeUndefined();
 

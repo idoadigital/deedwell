@@ -1,0 +1,22 @@
+# Unified secure-demo origin: app + API + sites under ONE origin so the
+# HTTPS tunnel gives a secure context (mic, autoplay) with no mixed content.
+{
+	admin off
+	auto_https off
+}
+
+:8080 {
+	handle /api/* {
+		uri strip_prefix /api
+		reverse_proxy localhost:3001
+	}
+	handle /sites/* {
+		uri strip_prefix /sites
+		reverse_proxy localhost:8788
+	}
+	handle {
+		reverse_proxy localhost:4173 {
+			header_up Host localhost
+		}
+	}
+}

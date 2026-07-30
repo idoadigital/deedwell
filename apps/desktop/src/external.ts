@@ -4,10 +4,14 @@
  * window.open with noopener. URLs are validated first; failures are surfaced
  * and logged, never swallowed.
  */
+export function resolveUrl(url: string): string {
+  return new URL(url, typeof window !== "undefined" ? window.location.origin : "http://localhost").href;
+}
+
 export function isValidExternalUrl(url: string | null | undefined): url is string {
   if (!url) return false;
   try {
-    const parsed = new URL(url);
+    const parsed = new URL(url, typeof window !== "undefined" ? window.location.origin : "http://localhost");
     return parsed.protocol === "http:" || parsed.protocol === "https:";
   } catch {
     return false;
@@ -25,9 +29,9 @@ export async function openExternal(url: string): Promise<{ ok: boolean; error?: 
   try {
     if (inTauri()) {
       const { openUrl } = await import("@tauri-apps/plugin-opener");
-      await openUrl(url);
+      await openUrl(resolveUrl(url));
     } else {
-      const win = window.open(url, "_blank", "noopener,noreferrer");
+      const win = window.open(resolveUrl(url), "_blank", "noopener,noreferrer");
       if (!win) throw new Error("Popup blocked");
     }
     return { ok: true };
