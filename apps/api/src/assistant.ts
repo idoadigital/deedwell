@@ -291,7 +291,8 @@ export async function handleUserMessage(
   channel: ChannelRow,
   body: string,
   fileId: string | null,
-  clientKey?: string | null
+  clientKey?: string | null,
+  huddleId?: string | null
 ): Promise<Array<Record<string, unknown>>> {
   if (clientKey) {
     const dup = await client.query(
@@ -306,14 +307,18 @@ export async function handleUserMessage(
   const say = async (text: string, metadata: Record<string, unknown> = {}, agent = persona) => {
     out.push(await insertMessage(client, {
       tenantId: ids.tenantId, channelId: channel.id, authorKind: "agent",
-      authorAgent: agent, body: text, metadata,
+      authorAgent: agent, body: text,
+      metadata: huddleId ? { ...metadata, huddleId } : metadata,
     }));
   };
 
   out.push(await insertMessage(client, {
     tenantId: ids.tenantId, channelId: channel.id, authorKind: "user",
     authorUser: ids.userId, body,
-    metadata: { ...(fileId ? { fileId } : {}), ...(clientKey ? { clientKey } : {}) },
+    metadata: {
+      ...(fileId ? { fileId } : {}), ...(clientKey ? { clientKey } : {}),
+      ...(huddleId ? { huddleId } : {}),
+    },
   }));
 
   const contextStart = Date.now();

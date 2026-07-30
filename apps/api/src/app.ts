@@ -11,6 +11,7 @@ import { registerGrantRoutes } from "./routes-grant.js";
 import { registerGrantFullRoutes } from "./routes-grants-full.js";
 import { registerWebsiteRoutes } from "./routes-website.js";
 import { registerChatRoutes } from "./routes-chat.js";
+import { registerHuddleRoutes } from "./routes-huddle.js";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -118,5 +119,6 @@ export function buildApp(deps: Deps): FastifyInstance {
   registerGrantFullRoutes(app, ctx);
   registerWebsiteRoutes(app, ctx);
   registerChatRoutes(app, ctx);
+  registerHuddleRoutes(app, ctx);
   return app;
 }

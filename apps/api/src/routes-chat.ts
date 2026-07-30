@@ -199,7 +199,8 @@ export function registerChatRoutes(app: FastifyInstance, ctx: AppContext): void 
         channel.rows[0] as ChannelRow,
         input.body,
         input.fileId ?? null,
-        input.clientKey ?? null
+        input.clientKey ?? null,
+        input.huddleId ?? null
       );
     });
     // Wake any live listeners (SSE) in this org.

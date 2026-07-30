@@ -10,22 +10,24 @@ export interface Teammate {
   name: string;
   role: string;
   team: "core" | "grant" | "website";
+  /** Kokoro-82M voice id (open-source TTS) — distinct voice per teammate. */
+  voice: string;
 }
 
 export const TEAMMATES: Teammate[] = [
-  { agentKey: "core.executive_assistant", name: "Maya", role: "Executive Assistant", team: "core" },
-  { agentKey: "grant.program_planner", name: "Daniel", role: "Project Manager", team: "core" },
-  { agentKey: "grant.funding_strategist", name: "Amara", role: "Funding Strategist", team: "grant" },
-  { agentKey: "grant.opportunity_researcher", name: "David", role: "Grant Researcher", team: "grant" },
-  { agentKey: "grant.eligibility_analyst", name: "Grace", role: "Eligibility Analyst", team: "grant" },
-  { agentKey: "grant.writer", name: "Sophia", role: "Grant Writer", team: "grant" },
-  { agentKey: "grant.budget_specialist", name: "Michael", role: "Budget Specialist", team: "grant" },
-  { agentKey: "grant.requirements_analyst", name: "Naomi", role: "Compliance Reviewer", team: "grant" },
-  { agentKey: "website.digital_strategist", name: "Ava", role: "Website Strategist", team: "website" },
-  { agentKey: "website.seo_accessibility_reviewer", name: "Leo", role: "Website Designer", team: "website" },
-  { agentKey: "website.developer", name: "Noah", role: "Website Developer", team: "website" },
-  { agentKey: "website.copywriter", name: "Emma", role: "Website Copywriter", team: "website" },
-  { agentKey: "website.qa_deployment", name: "James", role: "Deployment Specialist", team: "website" },
+  { agentKey: "core.executive_assistant", name: "Maya", voice: "af_heart", role: "Executive Assistant", team: "core" },
+  { agentKey: "grant.program_planner", name: "Daniel", voice: "am_michael", role: "Project Manager", team: "core" },
+  { agentKey: "grant.funding_strategist", name: "Amara", voice: "af_bella", role: "Funding Strategist", team: "grant" },
+  { agentKey: "grant.opportunity_researcher", name: "David", voice: "am_adam", role: "Grant Researcher", team: "grant" },
+  { agentKey: "grant.eligibility_analyst", name: "Grace", voice: "af_sarah", role: "Eligibility Analyst", team: "grant" },
+  { agentKey: "grant.writer", name: "Sophia", voice: "af_nicole", role: "Grant Writer", team: "grant" },
+  { agentKey: "grant.budget_specialist", name: "Michael", voice: "am_eric", role: "Budget Specialist", team: "grant" },
+  { agentKey: "grant.requirements_analyst", name: "Naomi", voice: "bf_emma", role: "Compliance Reviewer", team: "grant" },
+  { agentKey: "website.digital_strategist", name: "Ava", voice: "af_sky", role: "Website Strategist", team: "website" },
+  { agentKey: "website.seo_accessibility_reviewer", name: "Leo", voice: "bm_george", role: "Website Designer", team: "website" },
+  { agentKey: "website.developer", name: "Noah", voice: "am_liam", role: "Website Developer", team: "website" },
+  { agentKey: "website.copywriter", name: "Emma", voice: "bf_isabella", role: "Website Copywriter", team: "website" },
+  { agentKey: "website.qa_deployment", name: "James", voice: "bm_lewis", role: "Deployment Specialist", team: "website" },
 ];
 
 export const teammateByKey = new Map(TEAMMATES.map((t) => [t.agentKey, t]));

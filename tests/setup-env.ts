@@ -6,3 +6,4 @@ process.env.DATA_DIR ??= "./.data-test";
 process.env.MODEL_PROVIDER ??= "mock";
 process.env.GRANT_SOURCE ??= "mock";
 process.env.LOG_LEVEL ??= "silent";
+process.env.VOICE_PROVIDER ??= "off";

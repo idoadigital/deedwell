@@ -180,11 +180,29 @@ export const listMessages = (orgId: string, channelId: string) =>
 
 export const sendMessage = (
   orgId: string, channelId: string, body: string,
-  fileId?: string | null, clientKey?: string | null
+  fileId?: string | null, clientKey?: string | null, huddleId?: string | null
 ) =>
   call<{ messages: ChatMessage[] }>("POST", `/v1/orgs/${orgId}/channels/${channelId}/messages`, {
-    body, fileId: fileId ?? null, clientKey: clientKey ?? null,
+    body, fileId: fileId ?? null, clientKey: clientKey ?? null, huddleId: huddleId ?? null,
   });
+
+export const startHuddle = (orgId: string, channelId: string) =>
+  call<{ huddleId: string; resumed: boolean; participants?: string[]; voices: boolean }>(
+    "POST", `/v1/orgs/${orgId}/huddles`, { channelId });
+
+export const endHuddle = (orgId: string, huddleId: string) =>
+  call<{ ok: true }>("POST", `/v1/orgs/${orgId}/huddles/${huddleId}/end`, {});
+
+/** Fetch synthesized agent speech (audio/wav) with the auth header. */
+export async function fetchTtsBlob(orgId: string, agent: string, text: string): Promise<Blob> {
+  const token = getToken();
+  const res = await fetch(
+    `${API_URL}/v1/orgs/${orgId}/tts?agent=${encodeURIComponent(agent)}&text=${encodeURIComponent(text.slice(0, 600))}`,
+    { headers: token ? { authorization: `Bearer ${token}` } : {} }
+  );
+  if (!res.ok) throw new ApiError(res.status, "Voice synthesis unavailable");
+  return res.blob();
+}
 
 export const cancelRun = (orgId: string, runId: string) =>
   call<{ ok: true }>("POST", `/v1/orgs/${orgId}/runs/${runId}/cancel`, {});

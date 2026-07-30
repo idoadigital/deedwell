@@ -522,6 +522,8 @@ export const PostMessageInput = z.object({
   fileId: z.string().uuid().nullable().optional(),
   /** Client-generated idempotency key: resends with the same key are no-ops. */
   clientKey: z.string().max(64).nullable().optional(),
+  /** Present when the message is spoken inside an active huddle. */
+  huddleId: z.string().uuid().nullable().optional(),
 });
 
 export const RecordOutcomeInput = z.object({

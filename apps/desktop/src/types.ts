@@ -304,6 +304,8 @@ export interface ChatMessage {
     siteId?: string;
     fileId?: string;
     goToChannelId?: string;
+    huddleId?: string;
+    huddleEvent?: string;
   };
   created_at: string;
 }

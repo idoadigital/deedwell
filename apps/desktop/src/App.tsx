@@ -16,6 +16,7 @@ import { ChatView, agentColor } from "./views/Chat";
 import { GrantsView } from "./views/Grants";
 import { PassportView } from "./views/Passport";
 import { WebsitesView } from "./views/Websites";
+import { HuddleView } from "./views/Huddle";
 import { ApprovalsView } from "./views/Approvals";
 
 const ORG_KEY = "deedwell.org";
@@ -502,21 +503,14 @@ export default function App() {
         </div>
       )}
 
-      {huddleNote && (
-        <div className="overlay" onClick={() => setHuddleNote(false)}>
-          <div className="overlay-panel" style={{ width: 420, height: "auto" }} onClick={(e) => e.stopPropagation()}>
-            <div className="overlay-head"><strong>Huddles</strong>
-              <button className="icon-btn" style={{ marginLeft: "auto" }} aria-label="Close" onClick={() => setHuddleNote(false)}>
-                <Icon name="x" size={16} />
-              </button>
-            </div>
-            <div style={{ padding: 20 }}>
-              <p>Voice huddles with your AI teammates — distinct voices, live captions, decisions
-              posted back to the channel — are the Phase 6 build and aren&rsquo;t available yet.</p>
-              <p className="muted">Everything a huddle would decide can already happen right here in the conversation.</p>
-            </div>
-          </div>
-        </div>
+      {huddleNote && active && (
+        <HuddleView
+          org={org}
+          channel={active}
+          teammates={mateMap}
+          onClose={() => setHuddleNote(false)}
+          refresh={refresh}
+        />
       )}
     </div>
   );
