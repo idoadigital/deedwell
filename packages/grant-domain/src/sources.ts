@@ -171,6 +171,19 @@ export class MockGrantSource implements GrantSourceProvider {
         ].join("\n"),
       };
     }
+    if (externalId === "MOCK-002" && process.env.MOCK_ANNOUNCEMENT_RETRY_OK === "1") {
+      // Test hook: lets suites exercise the retry-then-succeed path.
+      return {
+        title: "Community Innovation Fund",
+        text: [
+          "Community Innovation Fund [mock source announcement]",
+          "Applicants must be a registered 501(c)(3) nonprofit organization to be eligible.",
+          "The narrative must not exceed 400 words and must describe the target population.",
+          "The project budget must include a line-item budget justification.",
+          "Applications must be submitted by the posted deadline.",
+        ].join("\n"),
+      };
+    }
     return null; // MOCK-002: retrieval fails -> pending-intent path
   }
 }

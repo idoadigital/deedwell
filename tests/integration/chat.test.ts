@@ -14,9 +14,18 @@ let token: string;
 let orgId: string;
 
 const drainAll = async () => {
-  await env.deps.engine.drain("test-worker");
-  await bridgeFlush();
-  await workspaceBridgeFlush();
+  // Drain until no run is actively runnable: a step can requeue with a retry
+  // backoff seconds in the future, which fixed drain passes would miss.
+  for (let i = 0; i < 40; i++) {
+    await env.deps.engine.drain("test-worker");
+    await bridgeFlush();
+    await workspaceBridgeFlush();
+    const { rows } = await env.adminPool.query(
+      `SELECT COUNT(*)::int AS n FROM workflow_runs WHERE status IN ('pending','running')`
+    );
+    if (rows[0].n === 0) return;
+    await new Promise((r) => setTimeout(r, 150));
+  }
 };
 
 const send = (channelId: string, body: string, fileId?: string) =>
@@ -137,21 +146,61 @@ describe("workspace conversations", () => {
     expect(reply).toContain("saved");
   });
 
+  it("re-attempts retrieval on 'can you go get it' and reports failure honestly", async () => {
+    const res = await send(searchChannelId, "can you go get it");
+    const reply = res.body.messages.at(-1).body as string;
+    expect(reply).toContain("tried again");
+    expect(reply).toContain("Innovation Fund");
+    // Intent survives the failed retry.
+    const detail = await api(
+      env.app, "GET", `/v1/orgs/${orgId}/projects/${pendingProjectId}/grant-workspace`, { token }
+    );
+    expect(detail.body.project.pending_intent).toBeTruthy();
+    expect(detail.body.events.filter((e: any) => e.event_type === "announcement_retrieval_failed").length).toBeGreaterThan(1);
+  });
+
+  it("resumes automatically when a retry retrieval succeeds", async () => {
+    process.env.MOCK_ANNOUNCEMENT_RETRY_OK = "1";
+    try {
+      const res = await send(searchChannelId, "please try again");
+      const reply = res.body.messages.at(-1);
+      expect(reply.body).toContain("Resuming your application");
+      expect(reply.metadata.runId).toBeTruthy();
+      const detail = await api(
+        env.app, "GET", `/v1/orgs/${orgId}/projects/${pendingProjectId}/grant-workspace`, { token }
+      );
+      expect(detail.body.project.pending_intent).toBeNull();
+      expect(detail.body.events.some((e: any) => e.event_type === "intent_resumed")).toBe(true);
+      expect(detail.body.sources.some((sc: any) => sc.fetch_status === "retrieved")).toBe(true);
+    } finally {
+      delete process.env.MOCK_ANNOUNCEMENT_RETRY_OK;
+    }
+    await drainAll();
+  });
+
   it("resumes the blocked application automatically when the document arrives", async () => {
+    // Fresh blocked application in another channel (retrieval fails again).
+    const general = channels.find((c) => c.key === "general")!.id;
+    await send(general, "find grants for our arts program");
+    const applied = await send(general, "apply for #2");
+    const chId = applied.body.messages.at(-1).metadata.goToChannelId as string;
+    const ws = await api(env.app, "GET", `/v1/orgs/${orgId}/workspace`, { token });
+    const projId = ws.body.channels.find((c: any) => c.id === chId).project_id;
+
     const doc = Buffer.from(
       "Applicants must be a registered 501(c)(3) nonprofit organization.\nThe narrative must not exceed 300 words and must describe the target population.\n",
       "utf8"
     ).toString("base64");
-    const upload = await api(env.app, "POST", `/v1/orgs/${orgId}/channels/${pendingChannelId}/files`, {
+    const upload = await api(env.app, "POST", `/v1/orgs/${orgId}/channels/${chId}/files`, {
       token, body: { filename: "announcement.txt", mime: "text/plain", contentBase64: doc },
     });
-    const res = await send(pendingChannelId, "Attached: announcement.txt", upload.body.fileId);
+    const res = await send(chId, "Attached: announcement.txt", upload.body.fileId);
     const reply = res.body.messages.at(-1);
     expect(reply.body.toLowerCase()).toContain("resum");
     expect(reply.metadata.runId).toBeTruthy();
 
     const detail = await api(
-      env.app, "GET", `/v1/orgs/${orgId}/projects/${pendingProjectId}/grant-workspace`, { token }
+      env.app, "GET", `/v1/orgs/${orgId}/projects/${projId}/grant-workspace`, { token }
     );
     expect(detail.body.project.pending_intent).toBeNull(); // blocker cleared
     expect(detail.body.events.some((e: any) => e.event_type === "intent_resumed")).toBe(true);
