@@ -8,6 +8,8 @@ import type {
 import { Icon } from "./components/Icon";
 import { Avatar } from "./components/Avatar";
 import { ArtifactPanel } from "./components/ArtifactPanel";
+import { PreviewSurface } from "./components/PreviewSurface";
+import { openExternal } from "./external";
 import { LoginView } from "./views/Login";
 import { OrgSetupView } from "./views/OrgSetup";
 import { ChatView, agentColor } from "./views/Chat";
@@ -437,15 +439,7 @@ export default function App() {
                     <strong style={{ fontSize: 13 }}>
                       {sidePanel === "site" ? "Live website" : "Work & artifacts"}
                     </strong>
-                    {sidePanel === "site" && activeSite && (
-                      <a
-                        className="faint"
-                        href={`${api.SITE_ROUTER_URL}/${activeSite.live_version ? "live" : "preview"}/${activeSite.slug}/`}
-                        target="_blank" rel="noreferrer"
-                      >
-                        open in browser ↗
-                      </a>
-                    )}
+
                     <button className="icon-btn" style={{ marginLeft: "auto" }}
                       aria-label={panelMax ? "Exit full view (Esc)" : "Full view"}
                       title={panelMax ? "Exit full view (Esc)" : "Full view"}
@@ -458,13 +452,13 @@ export default function App() {
                   </div>
                   {sidePanel === "work" ? (
                     <ArtifactPanel org={org} detail={runDetail} />
-                  ) : activeSite ? (
-                    <iframe
-                      className="site-frame"
-                      title="Website preview"
-                      src={`${api.SITE_ROUTER_URL}/${activeSite.live_version ? "live" : "preview"}/${activeSite.slug}/`}
+                  ) : (
+                    <PreviewSurface
+                      url={activeSite
+                        ? `${api.SITE_ROUTER_URL}/${activeSite.live_version ? "live" : "preview"}/${activeSite.slug}/`
+                        : null}
                     />
-                  ) : null}
+                  )}
                 </aside>
               )}
             </div>

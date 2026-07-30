@@ -4,6 +4,7 @@ import type { ChannelInfo, ChatMessage, Organization, TeammateInfo } from "../ty
 import { Icon } from "../components/Icon";
 import { Avatar } from "../components/Avatar";
 import { chips, fitLabel, headline, type BidPayload } from "../decision";
+import { openExternal } from "../external";
 import { roleAtLeast } from "../roles";
 
 export function agentColor(key: string): string {
@@ -318,7 +319,7 @@ function Message({
                   <div className="faint">
                     {r.funder}{r.number ? ` · ${r.number}` : ""}{r.closeDate ? ` · closes ${r.closeDate}` : ""}
                     {r.sourceUrl?.startsWith("http") && (
-                      <> · <a href={r.sourceUrl} target="_blank" rel="noreferrer">details ↗</a></>
+                      <> · <a href={r.sourceUrl} onClick={(e) => { e.preventDefault(); void openExternal(r.sourceUrl!); }}>details ↗</a></>
                     )}
                   </div>
                 </div>

@@ -16,6 +16,8 @@ export interface AssistantContext {
   pendingApprovals: Array<{ id: string; kind: string }>;
   waitingRuns: Array<{ id: string; status: string; missingFacts: string[] }>;
   hasSite: boolean;
+  knownUrls?: Record<string, string>;
+  knownArtifacts?: Array<{ id: string; type: string; title: string }>;
 }
 
 export function mockIntent(request: ModelRequest): IntentOutput {
@@ -56,7 +58,30 @@ export function mockIntent(request: ModelRequest): IntentOutput {
     return { action: "start_grant_application", resultIndex: Number(applyMatch[2]) };
   }
 
+  // Memory recall: the agent must never ask for links it generated itself.
+  if (/\b(link|url|preview|website|site)\b/.test(lower) &&
+      /\b(you (built|created|made|gave)|the website|what.*(build|built)|open|show me|where)\b/.test(lower) &&
+      ctx.knownUrls && Object.keys(ctx.knownUrls).length > 0) {
+    const entries = Object.entries(ctx.knownUrls);
+    const live = entries.find(([k]) => k.endsWith("_live"));
+    const preview = entries.find(([k]) => k.endsWith("_preview"));
+    const parts = [];
+    if (live) parts.push(`live site: ${live[1]}`);
+    if (preview) parts.push(`preview: ${preview[1]}`);
+    return {
+      action: "answer",
+      text: `I found it in the project's artifact registry — ${parts.join(" · ")}. I can update it, republish, or roll it back; just say the word.`,
+    };
+  }
+
   if (/\b(build|create|make|set ?up)\b/.test(lower) && /\b(web ?site|web ?page|site)\b/.test(lower)) {
+    if (ctx.hasSite && ctx.knownUrls && Object.keys(ctx.knownUrls).length > 0) {
+      const first = Object.values(ctx.knownUrls)[0];
+      return {
+        action: "answer",
+        text: `This project already has a website (${first}). Tell me what to change and Noah will patch it — or say "build a new website" in a fresh project if you want to start over.`,
+      };
+    }
     return { action: "build_website", siteName: null };
   }
 

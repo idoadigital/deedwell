@@ -34,12 +34,18 @@ const CONTENT_TYPES: Record<string, string> = {
   svg: "image/svg+xml",
 };
 
+// frame-ancestors previously said 'none', which blocked OUR OWN artifact-panel
+// iframe — the root cause of the blank preview. Previews may be framed by the
+// Deedwell app origins only; everyone else is still refused.
+const FRAME_ANCESTORS =
+  process.env.FRAME_ANCESTORS ??
+  "http://178.104.188.229:4173 http://localhost:4173 http://localhost:5173 tauri://localhost http://tauri.localhost";
+
 const SECURITY_HEADERS: Record<string, string> = {
   "content-security-policy":
-    "default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data: https:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+    `default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data: https:; form-action 'self'; base-uri 'none'; frame-ancestors ${FRAME_ANCESTORS}`,
   "x-content-type-options": "nosniff",
   "referrer-policy": "strict-origin-when-cross-origin",
-  "x-frame-options": "DENY",
 };
 
 const NOT_FOUND_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Site not found</title></head>

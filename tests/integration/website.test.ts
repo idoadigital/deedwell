@@ -101,7 +101,11 @@ describe("website build → preview → publish", () => {
     expect(res.body).toContain("Mentoring and after-school programs");
     expect(res.body).not.toContain("<script");
     expect(res.headers["content-security-policy"]).toContain("default-src 'none'");
-    expect(res.headers["x-frame-options"]).toBe("DENY");
+    // Framing allowed ONLY for the app origins (artifact-panel preview),
+    // still refused for everyone else.
+    expect(res.headers["content-security-policy"]).toContain("frame-ancestors http");
+    expect(res.headers["content-security-policy"]).not.toContain("frame-ancestors 'none'");
+    expect(res.headers["x-frame-options"]).toBeUndefined();
 
     expect((await routerGet("/preview/riverbend/about/")).statusCode).toBe(200);
     expect((await routerGet("/preview/riverbend/sitemap.xml")).statusCode).toBe(200);

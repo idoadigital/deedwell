@@ -23,7 +23,16 @@ export const executiveAssistant: AgentDefinition = AgentDefinition.parse({
 a workspace for nonprofit organizations. Read the user's message and the workspace context,
 then choose exactly one action. Never invent search results, approvals, or organizational
 facts. When the team is waiting for information, map the user's reply onto the requested
-fact keys. Prefer "clarify" over guessing when a request is ambiguous or destructive.`,
+fact keys. Prefer "clarify" over guessing when a request is ambiguous or destructive.
+
+RESPONSE CONTRACT — before choosing an action, consult the provided context:
+recentTranscript (what was already said), knownArtifacts and knownUrls (what the team
+already produced, including website preview/live links), taskState (what is running,
+waiting, done, or failed), projectMemory (summary, decisions, status), relevantHistory.
+NEVER ask the user for information that appears there — especially links the team itself
+generated: if asked about "the website you built" or "the link", use the "answer" action
+and give the URL from knownUrls, stating what you found. Acknowledge prior decisions
+instead of re-asking. Only ask for things that are genuinely missing.`,
   allowedTools: [],
   outputSchemaRef: "intent",
   maxOutputRetries: 2,
@@ -142,10 +151,33 @@ export async function insertMessage(client: PoolClient, args: PostArgs): Promise
 // Context for intent routing
 // ---------------------------------------------------------------------------
 
-async function buildContext(client: PoolClient, tenantId: string, channel: ChannelRow) {
+export async function updateProjectMemory(
+  client: PoolClient,
+  tenantId: string,
+  projectId: string,
+  patch: { decision?: string; status?: string; urls?: Record<string, string>; summary?: string }
+): Promise<void> {
+  await client.query(
+    `INSERT INTO project_memories (id, tenant_id, project_id, summary, key_decisions, known_urls, latest_status)
+     VALUES ($1,$2,$3,$4,$5,$6,$7)
+     ON CONFLICT (project_id) DO UPDATE SET
+       summary = CASE WHEN EXCLUDED.summary <> '' THEN EXCLUDED.summary ELSE project_memories.summary END,
+       key_decisions = CASE WHEN $8::text IS NULL THEN project_memories.key_decisions
+         ELSE project_memories.key_decisions || jsonb_build_array($8::text) END,
+       known_urls = project_memories.known_urls || EXCLUDED.known_urls,
+       latest_status = CASE WHEN EXCLUDED.latest_status <> '' THEN EXCLUDED.latest_status ELSE project_memories.latest_status END,
+       updated_at = now()`,
+    [uuidv7(), tenantId, projectId, patch.summary ?? "",
+     JSON.stringify(patch.decision ? [patch.decision] : []),
+     JSON.stringify(patch.urls ?? {}), patch.status ?? "", patch.decision ?? null]
+  );
+}
+
+async function buildContext(client: PoolClient, tenantId: string, channel: ChannelRow, currentMessage = "") {
   const org = await client.query("SELECT name FROM organizations WHERE id = $1", [tenantId]);
   const recent = await client.query(
-    `SELECT metadata FROM messages WHERE channel_id = $1 ORDER BY created_at DESC LIMIT 40`,
+    `SELECT author_kind, author_agent, body, metadata FROM messages
+     WHERE channel_id = $1 ORDER BY created_at DESC LIMIT 40`,
     [channel.id]
   );
   let lastSearchResults: Array<{ index: number; title: string }> = [];
@@ -167,8 +199,68 @@ async function buildContext(client: PoolClient, tenantId: string, channel: Chann
      ORDER BY updated_at DESC LIMIT 5`,
     channel.project_id ? [channel.project_id] : []
   );
-  const sites = await client.query("SELECT id FROM sites LIMIT 1");
+  const sites = await client.query(
+    `SELECT s.id, s.slug, s.name, s.status, s.project_id,
+            (SELECT version FROM site_releases r WHERE r.id = s.preview_release_id) AS preview_version,
+            (SELECT version FROM site_releases r WHERE r.id = s.active_release_id) AS live_version
+     FROM sites s ${channel.project_id ? "WHERE s.project_id = $1" : ""}
+     ORDER BY s.created_at DESC LIMIT 3`,
+    channel.project_id ? [channel.project_id] : []
+  );
+  const sitesBase = process.env.SITES_PUBLIC_BASE ?? "http://178.104.188.229:8788";
+  const knownUrls: Record<string, string> = {};
+  for (const s of sites.rows) {
+    if (s.preview_version) knownUrls[`${s.slug}_preview`] = `${sitesBase}/preview/${s.slug}/`;
+    if (s.live_version) knownUrls[`${s.slug}_live`] = `${sitesBase}/live/${s.slug}/`;
+  }
+  // Project channels see their project; DMs and team channels see the org-wide
+  // picture (RLS keeps everything tenant-scoped) so Maya knows all active work.
+  const artifacts = (await client.query(
+    `SELECT id, type, title, current_version FROM artifacts
+     ${channel.project_id ? "WHERE project_id = $1" : ""} ORDER BY updated_at DESC LIMIT 12`,
+    channel.project_id ? [channel.project_id] : []
+  )).rows;
+  const tasks = (await client.query(
+    `SELECT r.id, r.definition, r.status, r.current_step, r.last_error, p.name AS project_name
+     FROM workflow_runs r JOIN projects p ON p.id = r.project_id
+     ${channel.project_id ? "WHERE r.project_id = $1" : ""} ORDER BY r.updated_at DESC LIMIT 6`,
+    channel.project_id ? [channel.project_id] : []
+  )).rows;
+  const memories = (await client.query(
+    `SELECT summary, key_decisions, known_urls, latest_status FROM project_memories
+     ${channel.project_id ? "WHERE project_id = $1" : ""} ORDER BY updated_at DESC LIMIT 4`,
+    channel.project_id ? [channel.project_id] : []
+  )).rows;
+  const memory = memories[0] ?? null;
+  for (const mem of memories) {
+    if (mem.known_urls) Object.assign(knownUrls, mem.known_urls);
+  }
+  // Relevance retrieval: older in-channel messages matching the current ask
+  // (keyword FTS now; embedding retrieval slots in behind this same query).
+  let relevantHistory: Array<{ author: string; body: string }> = [];
+  if (currentMessage.trim().length > 3) {
+    try {
+      const hits = await client.query(
+        `SELECT author_agent, author_kind, body FROM messages
+         WHERE channel_id = $1
+           AND to_tsvector('english', body) @@ websearch_to_tsquery('english', $2)
+         ORDER BY created_at DESC OFFSET 10 LIMIT 5`,
+        [channel.id, currentMessage.slice(0, 200)]
+      );
+      relevantHistory = hits.rows.map((r) => ({
+        author: r.author_agent ?? r.author_kind, body: String(r.body).slice(0, 300),
+      }));
+    } catch { /* malformed query text — retrieval is best-effort */ }
+  }
   return {
+    recentTranscript: recent.rows.slice(0, 14).reverse().map((r) => ({
+      author: r.author_agent ?? r.author_kind, body: String(r.body).slice(0, 400),
+    })),
+    knownUrls,
+    knownArtifacts: artifacts.map((r) => ({ id: r.id, type: r.type, title: r.title, version: r.current_version })),
+    taskState: tasks.map((t) => ({ project: t.project_name, definition: t.definition, status: t.status, step: t.current_step, error: t.last_error })),
+    projectMemory: memory,
+    relevantHistory,
     orgName: org.rows[0]?.name ?? "",
     channelKind: channel.kind,
     projectType: channel.project_type ?? null,
@@ -224,8 +316,17 @@ export async function handleUserMessage(
     metadata: { ...(fileId ? { fileId } : {}), ...(clientKey ? { clientKey } : {}) },
   }));
 
-  const context = await buildContext(client, ids.tenantId, channel);
+  const contextStart = Date.now();
+  const context = await buildContext(client, ids.tenantId, channel, body);
   if (fileId) context.lastUploadedFileId = fileId;
+  // Observability: what context was actually loaded for this response.
+  console.log(JSON.stringify({
+    at: "agent_context", channelId: channel.id, projectId: channel.project_id,
+    transcript: context.recentTranscript.length, artifacts: context.knownArtifacts.length,
+    urls: Object.keys(context.knownUrls).length, retrieved: context.relevantHistory.length,
+    tasks: context.taskState.length, hasMemory: !!context.projectMemory,
+    ms: Date.now() - contextStart,
+  }));
 
   let intent: IntentOutput;
   try {
@@ -576,6 +677,50 @@ async function bridgeMessage(
       body = `Pausing — this run hit its usage budget. A human needs to review before the team continues.`;
     }
     if (!body) return;
+    // Persist durable memory alongside the message (spec: memory is a system,
+    // not a prompt hack): decisions, status, and generated URLs survive here.
+    const projectId = run.rows[0].project_id;
+    const state2 = state as { bid?: { total?: number }; version?: number };
+    try {
+      if (event.status === "waiting_approval") {
+        // A built preview is a generated link the agent must remember even
+        // before publishing.
+        const sitesBaseW = process.env.SITES_PUBLIC_BASE ?? "http://178.104.188.229:8788";
+        const siteW = await client.query(
+          "SELECT slug, preview_release_id FROM sites WHERE project_id = $1 LIMIT 1",
+          [projectId]
+        );
+        const urlsW: Record<string, string> = {};
+        if (siteW.rows[0]?.preview_release_id) {
+          urlsW[`${siteW.rows[0].slug}_preview`] = `${sitesBaseW}/preview/${siteW.rows[0].slug}/`;
+        }
+        await updateProjectMemory(client, event.tenantId, projectId, {
+          status: `Waiting for approval (${metadata.approvalKind ?? "gate"})`,
+          urls: urlsW,
+        });
+      } else if (event.status === "completed") {
+        const sitesBase = process.env.SITES_PUBLIC_BASE ?? "http://178.104.188.229:8788";
+        const site = await client.query(
+          "SELECT slug, active_release_id, preview_release_id FROM sites WHERE project_id = $1 LIMIT 1",
+          [projectId]
+        );
+        const urls: Record<string, string> = {};
+        if (site.rows[0]?.preview_release_id) urls[`${site.rows[0].slug}_preview`] = `${sitesBase}/preview/${site.rows[0].slug}/`;
+        if (site.rows[0]?.active_release_id) urls[`${site.rows[0].slug}_live`] = `${sitesBase}/live/${site.rows[0].slug}/`;
+        await updateProjectMemory(client, event.tenantId, projectId, {
+          decision: state.published === true ? `Website published${state2.version ? ` (v${state2.version})` : ""}`
+            : state.exported ? "Application package exported after final approval"
+            : state.outcome === "not_pursued" ? "Decided not to pursue this opportunity"
+            : `Workflow ${run.rows[0].definition} completed`,
+          status: `Last completed: ${run.rows[0].definition}`,
+          urls,
+        });
+      } else if (event.status === "failed") {
+        await updateProjectMemory(client, event.tenantId, projectId, {
+          status: `Needs attention: ${run.rows[0].definition} failed`,
+        });
+      }
+    } catch { /* memory write is best-effort; the message still lands */ }
     await insertMessage(client, {
       tenantId: event.tenantId, channelId, authorKind: "agent", authorAgent: agent, body, metadata,
     });

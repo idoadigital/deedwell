@@ -3,6 +3,7 @@ import * as api from "../api";
 import type { Organization, SiteDetail, SiteRow, SubmissionRow } from "../types";
 import { Icon } from "../components/Icon";
 import { roleAtLeast } from "../roles";
+import { openExternal } from "../external";
 
 export function WebsitesView({
   org,
@@ -136,14 +137,14 @@ function SitePanel({
         </div>
         <div className="row mt">
           {row.preview_version && (
-            <a href={previewUrl} target="_blank" rel="noreferrer">
-              <button className="ghost">Preview (v{row.preview_version}) ↗</button>
-            </a>
+            <button className="ghost" onClick={() => void openExternal(previewUrl)}>
+              Preview (v{row.preview_version}) ↗
+            </button>
           )}
           {row.live_version && (
-            <a href={liveUrl} target="_blank" rel="noreferrer">
-              <button className="primary">Live site (v{row.live_version}) ↗</button>
-            </a>
+            <button className="primary" onClick={() => void openExternal(liveUrl)}>
+              Live site (v{row.live_version}) ↗
+            </button>
           )}
           <button className="ghost" onClick={() => onOpenProject(row.project_id)}>
             Open project workspace

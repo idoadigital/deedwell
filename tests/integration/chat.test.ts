@@ -165,6 +165,41 @@ describe("workspace conversations", () => {
     expect(msgs.some((m) => m.metadata.approvalKind === "publish_site")).toBe(true);
   });
 
+  it("remembers its own outputs: asking about 'the website you built' returns the saved link", async () => {
+    // The site was published in the previous test; the agent must find the
+    // URL in project memory / the artifact registry — never ask for it.
+    const res = await api(env.app, "GET", `/v1/orgs/${orgId}/channels`, { token });
+    const siteChannel = res.body.channels.find(
+      (c: any) => c.kind === "project" && c.name.includes("website")
+    ) ?? res.body.channels.find((c: any) => c.name === "website-launch");
+    // fall back: any project channel with a site
+    const target = siteChannel ?? res.body.channels.find((c: any) => c.kind === "project");
+    const reply = await send(target.id, "What is the link to the website you built?");
+    const last = reply.body.messages.at(-1);
+    expect(last.body).toMatch(/http/);
+    expect(last.body.toLowerCase()).not.toContain("please provide");
+    expect(last.body.toLowerCase()).not.toContain("send me the link");
+  });
+
+  it("does not rebuild when a website already exists — points to it instead", async () => {
+    const res = await api(env.app, "GET", `/v1/orgs/${orgId}/channels`, { token });
+    const target = res.body.channels.find((c: any) => c.kind === "project" && c.name.includes("website"))
+      ?? res.body.channels.find((c: any) => c.kind === "project");
+    const reply = await send(target.id, "build a website please");
+    const last = reply.body.messages.at(-1);
+    expect(last.body).toContain("already has a website");
+    expect(last.body).toMatch(/http/);
+  });
+
+  it("records decisions and URLs in durable project memory", async () => {
+    const { rows } = await env.adminPool.query(
+      "SELECT key_decisions, known_urls, latest_status FROM project_memories WHERE tenant_id = (SELECT id FROM organizations WHERE slug = 'chat-org') ORDER BY updated_at DESC"
+    );
+    expect(rows.length).toBeGreaterThan(0);
+    const all = JSON.stringify(rows);
+    expect(all).toContain("preview");
+  });
+
   it("deduplicates resent messages via clientKey (idempotency)", async () => {
     const key = "test-idem-key-1";
     const first = await api(env.app, "POST", `/v1/orgs/${orgId}/channels/${mayaDm.id}/messages`, {
