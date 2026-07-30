@@ -114,6 +114,96 @@ export function registerChatRoutes(app: FastifyInstance, ctx: AppContext): void 
     return { ...out, teammates: TEAMMATES };
   });
 
+  // Grant application workspace: everything the panel needs in one call —
+  // overview, timeline, sources, requirements, eligibility, questions, files.
+  app.get("/v1/orgs/:orgId/projects/:projectId/grant-workspace", async (req) => {
+    ctx.requireRole(req, "viewer");
+    const { projectId } = req.params as { projectId: string };
+    return ctx.inOrg(req, async (client) => {
+      const project = await client.query(
+        `SELECT p.id, p.name, p.type, p.workspace_status, p.workspace_phase, p.pending_intent,
+                o.title AS grant_title, o.funder, o.opportunity_number, o.deadline, o.source_url
+         FROM projects p
+         LEFT JOIN grant_opportunities o ON o.project_id = p.id
+         WHERE p.id = $1 ORDER BY o.created_at DESC LIMIT 1`,
+        [projectId]
+      );
+      if (!project.rows[0]) throw new HttpError(404, "Project not found");
+      const run = await client.query(
+        `SELECT id, status, current_step, last_error FROM workflow_runs
+         WHERE project_id = $1 AND definition LIKE 'grant%' ORDER BY created_at DESC LIMIT 1`,
+        [projectId]
+      );
+      const events = await client.query(
+        `SELECT id, run_id, event_type, title, summary, status, agent_key, artifact_id, metadata, error, created_at, completed_at
+         FROM workspace_events WHERE project_id = $1 ORDER BY created_at DESC LIMIT 60`,
+        [projectId]
+      );
+      const sources = await client.query(
+        `SELECT id, url, title, publisher, source_type, reliability, fetch_status, file_id, excerpt, retrieved_at
+         FROM research_sources WHERE project_id = $1 ORDER BY retrieved_at DESC LIMIT 30`,
+        [projectId]
+      );
+      const artifacts = await client.query(
+        `SELECT id, type, title, current_version, updated_at FROM artifacts
+         WHERE project_id = $1 ORDER BY updated_at DESC LIMIT 30`,
+        [projectId]
+      );
+      const matrix = await client.query(
+        `SELECT av.content FROM artifacts a
+         JOIN artifact_versions av ON av.artifact_id = a.id AND av.version = a.current_version
+         WHERE a.project_id = $1 AND a.type = 'compliance_matrix' LIMIT 1`,
+        [projectId]
+      );
+      const eligibility = await client.query(
+        `SELECT e.overall, e.rule_findings, e.missing_facts, e.created_at FROM eligibility_results e
+         JOIN grant_opportunities o ON o.id = e.opportunity_id
+         WHERE o.project_id = $1 ORDER BY e.created_at DESC LIMIT 1`,
+        [projectId]
+      );
+      const files = await client.query(
+        `SELECT id, filename, mime, size_bytes, created_at FROM files
+         WHERE project_id = $1 ORDER BY created_at DESC LIMIT 30`,
+        [projectId]
+      );
+      // Open questions: facts the running workflow is genuinely missing,
+      // prefilled with anything the org already certified (never re-asked).
+      const waiting = run.rows[0]?.status === "waiting_for_info"
+        ? await client.query(
+            `SELECT state->'waiting'->>'payload' AS payload FROM workflow_runs WHERE id = $1`,
+            [run.rows[0].id]
+          )
+        : null;
+      let missingFacts: string[] = [];
+      try {
+        missingFacts = (JSON.parse(waiting?.rows[0]?.payload ?? "{}") as { missingFacts?: string[] }).missingFacts ?? [];
+      } catch { /* none */ }
+      const knownFacts = await client.query(
+        `SELECT fact_key, value FROM org_facts WHERE status = 'user_certified'`
+      );
+      const { completionForRun } = await import("./workspace.js");
+      return {
+        project: project.rows[0],
+        run: run.rows[0] ?? null,
+        completion: run.rows[0]
+          ? completionForRun(run.rows[0].current_step, run.rows[0].status)
+          : project.rows[0].pending_intent ? 2 : 5,
+        events: events.rows,
+        sources: sources.rows,
+        artifacts: artifacts.rows,
+        requirements: matrix.rows[0]?.content?.requirements ?? [],
+        eligibility: eligibility.rows[0] ?? null,
+        files: files.rows,
+        questions: missingFacts.map((key) => ({
+          key,
+          label: key.replace(/_/g, " "),
+          reasonNeeded: "The eligibility check found no certified value for this fact, and the announcement's rules depend on it.",
+          prefill: knownFacts.rows.find((f) => f.fact_key === key)?.value ?? null,
+        })),
+      };
+    });
+  });
+
   app.get("/v1/orgs/:orgId/channels", async (req) => {
     ctx.requireRole(req, "viewer");
     const { rows } = await ctx.inOrg(req, async (client) => {
@@ -249,7 +339,9 @@ export function registerChatRoutes(app: FastifyInstance, ctx: AppContext): void 
         input.body,
         input.fileId ?? null,
         input.clientKey ?? null,
-        input.huddleId ?? null
+        input.huddleId ?? null,
+        null,
+        input.action ?? null
       );
     });
     // Wake any live listeners (SSE) in this org.

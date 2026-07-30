@@ -20,6 +20,8 @@ export interface OpportunityRecord {
 export interface GrantSourceProvider {
   readonly name: string;
   search(keyword: string, limit?: number): Promise<OpportunityRecord[]>;
+  /** Retrieve the full announcement text automatically, or null if unavailable. */
+  fetchAnnouncement(externalId: string): Promise<{ text: string; title: string } | null>;
 }
 
 interface GrantsGovHit {
@@ -66,6 +68,49 @@ export class GrantsGovProvider implements GrantSourceProvider {
       retrievedAt,
     }));
   }
+
+  async fetchAnnouncement(externalId: string): Promise<{ text: string; title: string } | null> {
+    try {
+      const data = await fetchOpportunityDetails(this.baseUrl, externalId);
+      if (!data) return null;
+      const syn = (data.synopsis ?? {}) as Record<string, unknown>;
+      const strip = (h: string) =>
+        h.replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/\s+/g, " ").trim();
+      const parts = [
+        `${fieldText(data.opportunityTitle)}`,
+        `Opportunity Number: ${fieldText(data.opportunityNumber)}`,
+        syn.synopsisDesc ? `\nDescription:\n${strip(fieldText(syn.synopsisDesc))}` : "",
+        syn.applicantEligibilityDesc ? `\nApplicant eligibility: ${strip(fieldText(syn.applicantEligibilityDesc))}` : "",
+        syn.fundingActivityCategoryDesc ? `Funding category: ${strip(fieldText(syn.fundingActivityCategoryDesc))}` : "",
+        syn.awardCeiling ? `Award ceiling: $${syn.awardCeiling}` : "",
+        syn.responseDate ? `Applications must be submitted by the deadline of ${fieldText(syn.responseDate)}.` : "",
+        syn.agencyContactDesc ? `Agency contact: ${strip(fieldText(syn.agencyContactDesc))}` : "",
+      ].filter(Boolean);
+      const text = parts.join("\n");
+      if (text.length < 200) return null; // too thin to analyze honestly
+      return { text, title: fieldText(data.opportunityTitle) || "Announcement" };
+    } catch {
+      return null;
+    }
+  }
+}
+
+/** Fetch full opportunity details (synopsis, eligibility, instructions). */
+async function fetchOpportunityDetails(baseUrl: string, externalId: string) {
+  const res = await fetch(`${baseUrl}/fetchOpportunity`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ opportunityId: Number(externalId) }),
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!res.ok) return null;
+  const payload = (await res.json()) as { errorcode: number; data?: Record<string, unknown> };
+  if (payload.errorcode !== 0 || !payload.data) return null;
+  return payload.data;
+}
+
+function fieldText(value: unknown): string {
+  return typeof value === "string" ? value : "";
 }
 
 /** Grants.gov returns MM/DD/YYYY; normalize to YYYY-MM-DD. */
@@ -77,6 +122,8 @@ function normalizeDate(value?: string): string | null {
 }
 
 /** ===== MOCK — deterministic stand-in for tests and offline development. ===== */
+// (GrantsGovProvider.fetchAnnouncement lives on the class below via prototype merge)
+
 export class MockGrantSource implements GrantSourceProvider {
   readonly name = "mock";
 
@@ -109,6 +156,22 @@ export class MockGrantSource implements GrantSourceProvider {
         retrievedAt,
       },
     ].slice(0, limit);
+  }
+
+  async fetchAnnouncement(externalId: string): Promise<{ text: string; title: string } | null> {
+    if (externalId === "MOCK-001") {
+      return {
+        title: "Mock Capacity Building Program",
+        text: [
+          "Mock Capacity Building Program [mock source announcement]",
+          "Applicants must be a registered 501(c)(3) nonprofit organization to be eligible.",
+          "The narrative must not exceed 400 words and must describe the target population.",
+          "The project budget must include a line-item budget justification.",
+          "Applications must be submitted by the posted deadline.",
+        ].join("\n"),
+      };
+    }
+    return null; // MOCK-002: retrieval fails -> pending-intent path
   }
 }
 

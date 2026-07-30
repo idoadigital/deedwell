@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import * as api from "../api";
-import type { ChannelInfo, ChatMessage, Organization, TeammateInfo } from "../types";
+import type { ChannelInfo, ChatMessage, GrantActionRef, Organization, TeammateInfo } from "../types";
 import { Icon } from "../components/Icon";
 import { Avatar } from "../components/Avatar";
 import { chips, fitLabel, headline, type BidPayload } from "../decision";
@@ -67,7 +67,7 @@ export function ChatView({
     if (atBottom) scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
   }, [messages.length, channel.id, awaitingReply, atBottom]);
 
-  async function send(body: string, fileId?: string | null) {
+  async function send(body: string, fileId?: string | null, action?: GrantActionRef | null) {
     if (!body.trim() || busy) return;
     setBusy(true);
     setAwaitingReply(true); // real request in flight — this is not a fake delay
@@ -83,8 +83,10 @@ export function ChatView({
     setMessages((prev) => [...prev, temp]);
     setText("");
     try {
-      const { messages: created } = await api.sendMessage(org.id, channel.id, body.trim(), fileId, clientKey);
+      const { messages: created } = await api.sendMessage(org.id, channel.id, body.trim(), fileId, clientKey, null, action);
       setMessages((prev) => [...prev.filter((m) => m.id !== temp.id), ...created]);
+      // Meaningful work started — open the workspace panel automatically.
+      if (created.some((m) => m.metadata?.openWorkspace)) onOpenWork();
       refresh();
     } catch (err) {
       setMessages((prev) => prev.filter((m) => m.id !== temp.id));
@@ -103,10 +105,12 @@ export function ChatView({
       const buf = new Uint8Array(await file.arrayBuffer());
       let binary = "";
       for (const byte of buf) binary += String.fromCharCode(byte);
-      const { fileId, filename } = await api.uploadChatFile(
-        org.id, channel.id, file.name,
-        file.name.endsWith(".md") ? "text/markdown" : "text/plain", btoa(binary)
-      );
+      const lower = file.name.toLowerCase();
+      const mime = lower.endsWith(".pdf") ? "application/pdf"
+        : lower.endsWith(".docx") ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        : lower.endsWith(".html") || lower.endsWith(".htm") ? "text/html"
+        : lower.endsWith(".md") ? "text/markdown" : "text/plain";
+      const { fileId, filename } = await api.uploadChatFile(org.id, channel.id, file.name, mime, btoa(binary));
       setBusy(false);
       await send(`Attached: ${filename}`, fileId);
     } catch (err) {
@@ -140,7 +144,7 @@ export function ChatView({
             org={org}
             onOpenChannel={onOpenChannel}
             onOpenWork={onOpenWork}
-            onQuickSend={(body) => void send(body)}
+            onQuickSend={(body, action) => void send(body, null, action)}
             refresh={refresh}
           />
         ))}
@@ -207,7 +211,7 @@ export function ChatView({
             onKeyDown={onKey}
           />
           <div className="composer-actions">
-            <button type="button" className="icon-btn" title="Attach a file (.txt/.md)"
+            <button type="button" className="icon-btn" title="Attach a file (.pdf/.docx/.txt/.md/.html)"
               aria-label="Attach file" disabled={!canPost} onClick={() => fileRef.current?.click()}>
               <Icon name="plus" size={16} />
             </button>
@@ -241,7 +245,7 @@ export function ChatView({
             </button>
           </div>
           <input
-            ref={fileRef} type="file" accept=".txt,.md,text/plain,text/markdown" hidden
+            ref={fileRef} type="file" accept=".txt,.md,.pdf,.docx,.html,.htm" hidden
             onChange={(e) => {
               const file = e.target.files?.[0];
               if (file) void attach(file);
@@ -272,9 +276,10 @@ function Message({
   org: Organization;
   onOpenChannel: (id: string) => void;
   onOpenWork: () => void;
-  onQuickSend: (body: string) => void;
+  onQuickSend: (body: string, action?: GrantActionRef | null) => void;
   refresh: () => void;
 }) {
+  const [appliedIndex, setAppliedIndex] = useState<number | null>(null);
   const isAgent = m.author_kind === "agent";
   const who = isAgent ? splitAgent(teammates, m.author_agent) : { name: m.author_name ?? "You", role: "" };
   const grouped =
@@ -323,8 +328,19 @@ function Message({
                     )}
                   </div>
                 </div>
-                <button className="ghost" onClick={() => onQuickSend(`apply for #${r.index}`)}>
-                  Apply
+                <button className="ghost" disabled={appliedIndex !== null}
+                  onClick={() => {
+                    // Structured event with the exact grant — the chat shows
+                    // "Apply for #N" but the server never re-derives it (§11).
+                    setAppliedIndex(r.index);
+                    onQuickSend(`Apply for #${r.index} — ${r.title}`, {
+                      type: "start_grant_application", index: r.index, title: r.title,
+                      number: r.number ?? null, funder: r.funder ?? null,
+                      closeDate: r.closeDate ?? null, sourceUrl: r.sourceUrl ?? null,
+                      externalId: r.externalId ?? null,
+                    });
+                  }}>
+                  {appliedIndex === r.index ? "Applying…" : "Apply"}
                 </button>
               </div>
             ))}

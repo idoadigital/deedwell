@@ -1,5 +1,6 @@
-# Unified secure-demo origin: app + API + sites under ONE origin so the
-# HTTPS tunnel gives a secure context (mic, autoplay) with no mixed content.
+# Unified secure-demo origin: static app + /api + /sites under ONE origin.
+# The app is served directly by Caddy with immutable caching for hashed
+# assets — repeat visits skip re-downloading the bundle and avatars.
 {
 	admin off
 	auto_https off
@@ -15,8 +16,13 @@
 		reverse_proxy localhost:8788
 	}
 	handle {
-		reverse_proxy localhost:4173 {
-			header_up Host localhost
-		}
+		root * /root/deedwell/apps/desktop/dist
+		encode gzip
+		@immutable path /assets/* /avatars/* /downloads/*
+		header @immutable Cache-Control "public, max-age=31536000, immutable"
+		@html path / /index.html
+		header @html Cache-Control "no-cache"
+		try_files {path} /index.html
+		file_server
 	}
 }

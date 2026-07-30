@@ -8,6 +8,7 @@ import type {
 import { Icon } from "./components/Icon";
 import { Avatar } from "./components/Avatar";
 import { ArtifactPanel } from "./components/ArtifactPanel";
+import { GrantWorkspacePanel } from "./components/GrantWorkspacePanel";
 import { PreviewSurface } from "./components/PreviewSurface";
 import { openExternal } from "./external";
 import { LoginView } from "./views/Login";
@@ -150,7 +151,12 @@ export default function App() {
     return () => { cancelled = true; };
   }, [sidePanel, org, activeRuns[0]?.id, activeRuns[0]?.updated_at, refreshTick]);
 
-  useEffect(() => { setSidePanel(null); }, [activeId]);
+  // The workspace panel opens automatically for grant application channels
+  // (workspace spec §2) — the conversation stays on the left.
+  useEffect(() => {
+    setSidePanel(active?.project_type === "grant_application" ? "work" : null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeId]);
 
   // ---- unread tracking ----------------------------------------------------
   useEffect(() => {
@@ -394,7 +400,8 @@ export default function App() {
                   Messages
                 </button>
                 <button role="tab" aria-selected={sidePanel === "work"} className={`seg-btn ${sidePanel === "work" ? "active" : ""}`}
-                  onClick={() => setSidePanel("work")} disabled={activeRuns.length === 0 && !activeSite}>
+                  onClick={() => setSidePanel("work")}
+                  disabled={activeRuns.length === 0 && !activeSite && active.project_type !== "grant_application"}>
                   Work & artifacts
                 </button>
                 {activeSite && (
@@ -450,7 +457,9 @@ export default function App() {
                   style={{ width: panelMax ? "100%" : panelWidth }}>
                   <div className="artifact-side-head">
                     <strong style={{ fontSize: 13 }}>
-                      {sidePanel === "site" ? "Live website" : "Work & artifacts"}
+                      {sidePanel === "site" ? "Live website"
+                        : active.project_type === "grant_application" ? "Application workspace"
+                        : "Work & artifacts"}
                     </strong>
 
                     <button className="icon-btn" style={{ marginLeft: "auto" }}
@@ -464,7 +473,15 @@ export default function App() {
                     </button>
                   </div>
                   {sidePanel === "work" ? (
-                    <ArtifactPanel org={org} detail={runDetail} />
+                    active.project_type === "grant_application" && active.project_id ? (
+                      <GrantWorkspacePanel
+                        org={org} projectId={active.project_id} channelId={active.id}
+                        refreshTick={refreshTick} refresh={refresh}
+                        runDetail={runDetail} teammates={mateMap}
+                      />
+                    ) : (
+                      <ArtifactPanel org={org} detail={runDetail} />
+                    )
                   ) : (
                     <PreviewSurface
                       url={activeSite

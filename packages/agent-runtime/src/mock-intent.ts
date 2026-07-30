@@ -11,7 +11,12 @@ export interface AssistantContext {
   orgName: string;
   channelKind: "team" | "project";
   projectType: string | null;
-  lastSearchResults: Array<{ index: number; title: string }>;
+  lastSearchResults: Array<{ index: number; title: string; number?: string | null; sourceUrl?: string }>;
+  pendingIntent?: {
+    projectId?: string; grantTitle?: string; opportunityNumber?: string | null;
+    sourceUrl?: string | null; type?: string;
+  } | null;
+  lastAssistantRequest?: string | null;
   lastUploadedFileId: string | null;
   pendingApprovals: Array<{ id: string; kind: string }>;
   waitingRuns: Array<{ id: string; status: string; missingFacts: string[] }>;
@@ -56,6 +61,42 @@ export function mockIntent(request: ModelRequest): IntentOutput {
   const applyMatch = lower.match(/\b(apply|start|go)\b[^#\d]*#?\s*(\d{1,2})/);
   if (applyMatch && ctx.lastSearchResults?.length) {
     return { action: "start_grant_application", resultIndex: Number(applyMatch[2]) };
+  }
+  // Ordinal words resolve against the most recent result set immediately.
+  const ORDINALS: Record<string, number> = { first: 1, second: 2, third: 3, fourth: 4, fifth: 5 };
+  const ordinal = lower.match(/\b(apply|start|use|open)\b.*\b(first|second|third|fourth|fifth|last)\b/);
+  if (ordinal && ctx.lastSearchResults?.length) {
+    const n = ordinal[2] === "last" ? ctx.lastSearchResults.length : ORDINALS[ordinal[2]!]!;
+    return { action: "start_grant_application", resultIndex: n };
+  }
+
+  // Follow-ups about a requested document resolve against the active saved
+  // application — never a generic "which document do you mean?" (spec §7–§9).
+  const pending = ctx.pendingIntent;
+  if (pending?.grantTitle &&
+      /\b(where|how)\b.*\b(find|get|download|locate)\b.*\b(announcement|document|file|it)\b/.test(lower)) {
+    const num = pending.opportunityNumber ? `, opportunity ${pending.opportunityNumber}` : "";
+    const link = pending.sourceUrl ? ` Open the details link beside that grant (${pending.sourceUrl}) and look for the funding announcement or application package section.` : " Check the funder's opportunity page for the funding announcement or application package.";
+    return {
+      action: "answer",
+      text: `You mean the announcement for "${pending.grantTitle}"${num} — the document I asked you to upload.${link} Download the PDF, Word, HTML, or text version and upload it here. Your application selection is already saved, so I'll continue automatically once it arrives.`,
+    };
+  }
+  // "apply for it / that grant": one active candidate → act; several → name them.
+  if (/\b(apply|go ahead|start)\b.*\b(it|that( grant)?|this( grant)?)\b/.test(lower)) {
+    if (pending?.grantTitle) {
+      return {
+        action: "answer",
+        text: `"${pending.grantTitle}"${pending.opportunityNumber ? ` (${pending.opportunityNumber})` : ""} is already saved as your active application — it's waiting on the announcement document. Upload it here and I'll continue automatically.`,
+      };
+    }
+    if (ctx.lastSearchResults?.length === 1) {
+      return { action: "start_grant_application", resultIndex: 1 };
+    }
+    if ((ctx.lastSearchResults?.length ?? 0) > 1) {
+      const names = ctx.lastSearchResults.slice(0, 2).map((r) => `"${r.title}"`).join(" or ");
+      return { action: "clarify", question: `Do you mean ${names}? Say "apply for #N" with the number you want.` };
+    }
   }
 
   // Memory recall: the agent must never ask for links it generated itself.

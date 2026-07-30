@@ -191,11 +191,16 @@ export const listMessages = (orgId: string, channelId: string) =>
 
 export const sendMessage = (
   orgId: string, channelId: string, body: string,
-  fileId?: string | null, clientKey?: string | null, huddleId?: string | null
+  fileId?: string | null, clientKey?: string | null, huddleId?: string | null,
+  action?: import("./types").GrantActionRef | null
 ) =>
   call<{ messages: ChatMessage[] }>("POST", `/v1/orgs/${orgId}/channels/${channelId}/messages`, {
     body, fileId: fileId ?? null, clientKey: clientKey ?? null, huddleId: huddleId ?? null,
+    action: action ?? null,
   });
+
+export const getGrantWorkspace = (orgId: string, projectId: string) =>
+  call<import("./types").GrantWorkspace>("GET", `/v1/orgs/${orgId}/projects/${projectId}/grant-workspace`);
 
 export const startHuddle = (orgId: string, channelId: string) =>
   call<{ huddleId: string; resumed: boolean; participants?: string[]; voices: boolean }>(
@@ -224,7 +229,7 @@ export const cancelRun = (orgId: string, runId: string) =>
 
 export const uploadChatFile = (
   orgId: string, channelId: string,
-  filename: string, mime: "text/plain" | "text/markdown", contentBase64: string
+  filename: string, mime: string, contentBase64: string
 ) =>
   call<{ fileId: string; filename: string }>(
     "POST", `/v1/orgs/${orgId}/channels/${channelId}/files`, { filename, mime, contentBase64 });

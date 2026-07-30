@@ -51,8 +51,25 @@ export const UploadFileInput = z.object({
   // Base64 payload keeps the slice transport-simple; multipart streaming is a
   // planned replacement and changes nothing downstream of the storage adapter.
   contentBase64: z.string().max(10_000_000),
-  mime: z.enum(["text/plain", "text/markdown"]),
+  mime: z.enum([
+    "text/plain", "text/markdown", "text/html",
+    "application/pdf",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  ]),
 });
+
+/** Structured grant reference — the Apply button sends this, not just text. */
+export const GrantActionRef = z.object({
+  type: z.literal("start_grant_application"),
+  index: z.number().int().min(1).max(50).nullable().optional(),
+  title: z.string().max(400),
+  number: z.string().max(120).nullable().optional(),
+  funder: z.string().max(300).nullable().optional(),
+  closeDate: z.string().max(20).nullable().optional(),
+  sourceUrl: z.string().max(1000).nullable().optional(),
+  externalId: z.string().max(120).nullable().optional(),
+});
+export type GrantActionRef = z.infer<typeof GrantActionRef>;
 
 // ---------------------------------------------------------------------------
 // Grant domain — compliance matrix & sections
@@ -524,6 +541,8 @@ export const PostMessageInput = z.object({
   clientKey: z.string().max(64).nullable().optional(),
   /** Present when the message is spoken inside an active huddle. */
   huddleId: z.string().uuid().nullable().optional(),
+  /** Structured action from UI controls (e.g. the Apply button). */
+  action: GrantActionRef.nullable().optional(),
 });
 
 export const RecordOutcomeInput = z.object({

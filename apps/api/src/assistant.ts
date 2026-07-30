@@ -1,10 +1,12 @@
 import type { PoolClient } from "pg";
-import { audit, uuidv7, withContext } from "@deedwell/database";
+import { createHash } from "node:crypto";
+import { audit, tenantFileKey, uuidv7, withContext } from "@deedwell/database";
 import { runAgentTask } from "@deedwell/agent-runtime";
-import { AgentDefinition, IntentOutput, type OrgFact } from "@deedwell/schemas";
+import { AgentDefinition, IntentOutput, type GrantActionRef, type OrgFact } from "@deedwell/schemas";
 import { GRANT_FULL_WORKFLOW } from "@deedwell/grant-domain";
 import { WEBSITE_BUILD_WORKFLOW, WEBSITE_UPDATE_WORKFLOW } from "@deedwell/website-domain";
 import type { Deps } from "./bootstrap.js";
+import { recordEvent, recordSource, setWorkspace } from "./workspace.js";
 import { DEFAULT_CHANNELS, MAYA_WELCOME, TEAMMATES } from "./teammates.js";
 
 /**
@@ -32,7 +34,17 @@ waiting, done, or failed), projectMemory (summary, decisions, status), relevantH
 NEVER ask the user for information that appears there — especially links the team itself
 generated: if asked about "the website you built" or "the link", use the "answer" action
 and give the URL from knownUrls, stating what you found. Acknowledge prior decisions
-instead of re-asking. Only ask for things that are genuinely missing.`,
+instead of re-asking. Only ask for things that are genuinely missing.
+
+ACTIVE APPLICATION RULES: context.pendingIntent (when present) is the user's saved
+application intent — the exact grant (title, opportunity number, details URL) and what is
+blocking it. context.lastAssistantRequest is what the team most recently asked the user for.
+Interpret follow-up questions ("where do I find it?", "the announcement document", "that
+grant", "apply for it") against these BEFORE anything else. If the user asks where to find a
+document the team requested, use "answer": name the exact grant and opportunity number,
+point to its details link, and confirm their selection is already saved — never reply with a
+generic "which document do you mean?". Only ask a clarifying question when two or more
+concrete candidates remain, and then name the actual options.`,
   allowedTools: [],
   outputSchemaRef: "intent",
   maxOutputRetries: 2,
@@ -50,6 +62,11 @@ export interface ChannelRow {
   project_id: string | null;
   project_type?: string | null;
   agent_key?: string | null;
+}
+
+export interface SearchResultRef {
+  index: number; title: string; funder?: string; number?: string | null;
+  closeDate?: string | null; sourceUrl?: string; externalId?: string;
 }
 
 export function channelSlug(name: string): string {
@@ -186,13 +203,27 @@ async function buildContext(client: PoolClient, tenantId: string, channel: Chann
      WHERE channel_id = $1 ORDER BY created_at DESC LIMIT 40`,
     [channel.id]
   );
-  let lastSearchResults: Array<{ index: number; title: string }> = [];
+  let lastSearchResults: SearchResultRef[] = [];
   let lastUploadedFileId: string | null = null;
+  let lastAssistantRequest: string | null = null;
   for (const row of recent.rows) {
-    const meta = row.metadata as { searchResults?: Array<{ index: number; title: string }>; fileId?: string };
+    const meta = row.metadata as { searchResults?: SearchResultRef[]; fileId?: string };
     if (!lastSearchResults.length && meta.searchResults?.length) lastSearchResults = meta.searchResults;
     if (!lastUploadedFileId && meta.fileId) lastUploadedFileId = meta.fileId;
+    if (!lastAssistantRequest && row.author_kind === "agent") lastAssistantRequest = String(row.body).slice(0, 400);
   }
+  // Saved-but-blocked application intent survives refreshes and restarts on
+  // the project row (reference resolution spec §3, §12).
+  const pendingRows = await client.query(
+    `SELECT id, name, pending_intent FROM projects
+     WHERE pending_intent IS NOT NULL ${channel.project_id ? "AND id = $1" : ""}
+     ORDER BY created_at DESC LIMIT 1`,
+    channel.project_id ? [channel.project_id] : []
+  );
+  const pendingIntent = pendingRows.rows[0]
+    ? { projectId: pendingRows.rows[0].id, projectName: pendingRows.rows[0].name,
+        ...(pendingRows.rows[0].pending_intent as Record<string, unknown>) }
+    : null;
   const approvals = await client.query(
     `SELECT a.id, a.kind FROM approvals a JOIN workflow_runs r ON r.id = a.run_id
      WHERE a.status = 'pending' ${channel.project_id ? "AND r.project_id = $1" : ""}
@@ -272,6 +303,8 @@ async function buildContext(client: PoolClient, tenantId: string, channel: Chann
     projectType: channel.project_type ?? null,
     lastSearchResults,
     lastUploadedFileId,
+    pendingIntent,
+    lastAssistantRequest,
     pendingApprovals: approvals.rows,
     waitingRuns: waiting.rows.map((r) => {
       let missingFacts: string[] = [];
@@ -299,7 +332,8 @@ export async function handleUserMessage(
   fileId: string | null,
   clientKey?: string | null,
   huddleId?: string | null,
-  personaOverride?: string | null
+  personaOverride?: string | null,
+  action?: GrantActionRef | null
 ): Promise<Array<Record<string, unknown>>> {
   if (clientKey) {
     const dup = await client.query(
@@ -341,8 +375,55 @@ export async function handleUserMessage(
     ms: Date.now() - contextStart,
   }));
 
+  // A saved application intent blocked on a document resumes automatically the
+  // moment the file arrives — the user never repeats "apply for #N" (spec §12).
+  if (fileId && context.pendingIntent && (context.pendingIntent as { type?: string }).type === "start_application") {
+    const pending = context.pendingIntent as unknown as {
+      projectId: string; opportunityId: string; grantTitle: string;
+      opportunityNumber?: string | null; channelId?: string;
+    };
+    await client.query("UPDATE grant_opportunities SET file_id = $2 WHERE id = $1", [pending.opportunityId, fileId]);
+    await setWorkspace(client, pending.projectId, "researching", "Analyzing requirements", null);
+    const runId = await deps.engine.start(client, {
+      tenantId: ids.tenantId, projectId: pending.projectId, definition: GRANT_FULL_WORKFLOW,
+      createdBy: ids.userId, input: { opportunityId: pending.opportunityId, fileId },
+    });
+    await recordEvent(client, {
+      tenantId: ids.tenantId, projectId: pending.projectId, runId,
+      eventType: "intent_resumed", status: "completed",
+      title: "Application resumed automatically",
+      summary: `The announcement document arrived, so the saved application for "${pending.grantTitle}" resumed without re-selection.`,
+    });
+      await recordEvent(client, {
+        tenantId: ids.tenantId, projectId: pending.projectId, runId,
+        eventType: "step:parse_document", status: "in_progress",
+        title: "Parsing the announcement document",
+        summary: "Extracting the text of the funding announcement and scanning it for prompt-injection content.",
+        agentKey: "grant.requirements_analyst",
+      });
+    console.log(JSON.stringify({
+      at: "PENDING_INTENT_RESUMED", projectId: pending.projectId,
+      opportunityId: pending.opportunityId, runId, trigger: "file_upload",
+    }));
+    await say(
+      `Got it — that's the announcement for "${pending.grantTitle}"${pending.opportunityNumber ? ` (${pending.opportunityNumber})` : ""}. Your application was already saved, so I'm resuming right where we left off: parsing the announcement, extracting requirements, and checking eligibility. No need to repeat anything.`,
+      { runId, openWorkspace: true, ...(pending.channelId && pending.channelId !== channel.id ? { goToChannelId: pending.channelId } : {}) },
+      executiveAssistant.agentKey
+    );
+    return out;
+  }
+
   let intent: IntentOutput;
-  try {
+  // The Apply button dispatches a structured event with the exact grant — no
+  // LLM in the loop for resolution, no reliance on "#1" staying fresh (§11).
+  if (action?.type === "start_grant_application") {
+    intent = { action: "start_grant_application", resultIndex: action.index ?? 0 };
+    console.log(JSON.stringify({
+      at: "REFERENCE_RESOLVED", via: "structured_action", channelId: channel.id,
+      title: action.title, opportunityNumber: action.number ?? null, confidence: 1,
+      reasonCodes: ["UI_STRUCTURED_EVENT"],
+    }));
+  } else try {
     const result = await runAgentTask<IntentOutput>(
       deps.provider, executiveAssistant,
       "Choose the single best action for the user's message.",
@@ -352,6 +433,15 @@ export async function handleUserMessage(
       ]
     );
     intent = result.output;
+    if (intent.action === "start_grant_application") {
+      const wanted = intent.resultIndex;
+      const hit = context.lastSearchResults.find((r) => r.index === wanted);
+      console.log(JSON.stringify({
+        at: "REFERENCE_RESOLVED", via: "intent_router", channelId: channel.id,
+        userText: body.slice(0, 120), resolvedTitle: hit?.title ?? null,
+        reasonCodes: ["LAST_SEARCH_RESULT_SET"],
+      }));
+    }
   } catch (err) {
     await say(
       `I hit a problem understanding that (${err instanceof Error ? err.message.slice(0, 120) : "routing error"}). Could you rephrase?`
@@ -376,10 +466,10 @@ export async function handleUserMessage(
         }
         const list = results.map((r, i) => ({
           index: i + 1, title: r.title, funder: r.agency, number: r.opportunityNumber,
-          closeDate: r.closeDate, sourceUrl: r.sourceUrl,
+          closeDate: r.closeDate, sourceUrl: r.sourceUrl, externalId: r.externalId,
         }));
         await say(
-          `Here's what ${sourceLabel(deps)} has for "${intent.keyword}". Attach the announcement document and say "apply for #N" — I'll set up a channel for the application and bring the team in:`,
+          `Here's what ${sourceLabel(deps)} has for "${intent.keyword}" — eligibility still needs to be verified against your organization before any of these is a recommendation. Press Apply (or say "apply for #N") and I'll retrieve the announcement, build the requirements matrix, and check eligibility:`,
           { searchResults: list },
           channel.agent_key === "grant.funding_strategist" ? channel.agent_key : "grant.opportunity_researcher"
         );
@@ -390,15 +480,16 @@ export async function handleUserMessage(
     }
 
     case "start_grant_application": {
-      const pick = context.lastSearchResults.find((r) => r.index === intent.resultIndex) as
-        | { index: number; title: string; funder?: string; number?: string; closeDate?: string | null; sourceUrl?: string }
-        | undefined;
+      const pick: SearchResultRef | undefined =
+        action?.type === "start_grant_application"
+          ? {
+              index: action.index ?? 0, title: action.title, funder: action.funder ?? undefined,
+              number: action.number ?? null, closeDate: action.closeDate ?? null,
+              sourceUrl: action.sourceUrl ?? undefined, externalId: action.externalId ?? undefined,
+            }
+          : context.lastSearchResults.find((r) => r.index === intent.resultIndex);
       if (!pick) {
         await say(`I don't see a result #${intent.resultIndex} in this conversation's recent search. Run a search first ("find grants for …").`);
-        break;
-      }
-      if (!context.lastUploadedFileId) {
-        await say(`To start on "${pick.title}" I need the announcement document — attach the .txt/.md file here and then say "apply for #${intent.resultIndex}" again. I won't guess at requirements I haven't read.`);
         break;
       }
       // The project lives in its own channel (spec §7): reuse this one if it's
@@ -423,25 +514,123 @@ export async function handleUserMessage(
          pick.number ?? null, pick.closeDate ?? null,
          pick.sourceUrl?.startsWith("http") ? pick.sourceUrl : null, context.lastUploadedFileId]
       );
+      await recordEvent(client, {
+        tenantId: ids.tenantId, projectId: projectId!, eventType: "workspace_created",
+        status: "completed", title: `Grant selected: ${pick.title}`,
+        summary: `Application workspace created for "${pick.title}"${pick.number ? ` (${pick.number})` : ""}${pick.funder ? ` from ${pick.funder}` : ""}.`,
+        metadata: { opportunityId, opportunityNumber: pick.number ?? null, sourceUrl: pick.sourceUrl ?? null },
+      });
+
+      // Retrieve the announcement automatically before asking the user for
+      // anything (spec §6–§7): real fetch from the grant source, recorded as a
+      // research source either way — success or failure, never invented.
+      let announcementFileId = context.lastUploadedFileId;
+      if (!announcementFileId && pick.externalId) {
+        const retrievalEventId = await recordEvent(client, {
+          tenantId: ids.tenantId, projectId: projectId!, eventType: "retrieval_started",
+          status: "in_progress", title: "Announcement retrieval started",
+          summary: `Requesting the full funding announcement for ${pick.number ?? pick.title} from ${sourceLabel(deps)}.`,
+          agentKey: "grant.opportunity_researcher",
+        });
+        const fetched = await deps.grantSource.fetchAnnouncement(pick.externalId).catch(() => null);
+        await client.query(
+          `UPDATE workspace_events SET status = $2, completed_at = now() WHERE id = $1`,
+          [retrievalEventId, fetched ? "completed" : "failed"]
+        );
+        console.log(JSON.stringify({
+          at: "ANNOUNCEMENT_RETRIEVAL", projectId, externalId: pick.externalId,
+          ok: !!fetched, chars: fetched?.text.length ?? 0,
+        }));
+        if (fetched) {
+          const fid = uuidv7();
+          const content = Buffer.from(fetched.text, "utf8");
+          const filename = `${(pick.number ?? "announcement").replace(/[^A-Za-z0-9.-]+/g, "-")}.txt`;
+          const storageKey = tenantFileKey(ids.tenantId, fid, filename);
+          await deps.storage.put(storageKey, content);
+          await client.query(
+            `INSERT INTO files (id, tenant_id, project_id, filename, mime, size_bytes, sha256, storage_key, created_by)
+             VALUES ($1,$2,$3,$4,'text/plain',$5,$6,$7,$8)`,
+            [fid, ids.tenantId, projectId, filename, content.length,
+             createHash("sha256").update(content).digest("hex"), storageKey, ids.userId]
+          );
+          const sourceId = await recordSource(client, {
+            tenantId: ids.tenantId, projectId: projectId!, url: pick.sourceUrl ?? null,
+            title: fetched.title, publisher: pick.funder ?? null, fileId: fid,
+            excerpt: fetched.text.slice(0, 800),
+          });
+          await client.query("UPDATE grant_opportunities SET file_id = $2 WHERE id = $1", [opportunityId, fid]);
+          await recordEvent(client, {
+            tenantId: ids.tenantId, projectId: projectId!, eventType: "announcement_retrieved",
+            status: "completed", title: "Funding announcement retrieved",
+            summary: `Retrieved the announcement text (${fetched.text.length.toLocaleString()} characters) from ${sourceLabel(deps)} and stored it in the workspace.`,
+            agentKey: "grant.opportunity_researcher", metadata: { fileId: fid, sourceId },
+          });
+          announcementFileId = fid;
+        } else {
+          await recordSource(client, {
+            tenantId: ids.tenantId, projectId: projectId!, url: pick.sourceUrl ?? null,
+            title: `${pick.title} — announcement`, publisher: pick.funder ?? null,
+            fetchStatus: "failed", excerpt: "",
+          });
+          await recordEvent(client, {
+            tenantId: ids.tenantId, projectId: projectId!, eventType: "announcement_retrieval_failed",
+            status: "failed", title: "Announcement retrieval failed",
+            summary: `${sourceLabel(deps)} did not return usable announcement text for ${pick.number ?? pick.title}. Nothing was analyzed; the application is saved and waiting for the document.`,
+            agentKey: "grant.opportunity_researcher",
+          });
+        }
+      }
+      if (!announcementFileId) {
+        // Preserve the intent (spec §12): the user never repeats this command.
+        await setWorkspace(client, projectId!, "waiting_for_document", "Waiting for the announcement", {
+          type: "start_application", opportunityId, grantTitle: pick.title,
+          opportunityNumber: pick.number ?? null, sourceUrl: pick.sourceUrl ?? null,
+          channelId: targetChannelId, requestedAt: new Date().toISOString(),
+        });
+        console.log(JSON.stringify({
+          at: "PENDING_INTENT_SAVED", projectId, opportunityId,
+          blockedBy: "MISSING_ANNOUNCEMENT_DOCUMENT", title: pick.title,
+        }));
+        const ask = `I've saved "${pick.title}"${pick.number ? ` (opportunity ${pick.number})` : ""} as your active application. I could not retrieve the full announcement automatically${pick.externalId ? "" : " (this result has no machine-readable source id)"}. ${pick.sourceUrl?.startsWith("http") ? `Open the details link (${pick.sourceUrl}), download the funding announcement (PDF, Word, HTML, or text all work), and upload it here.` : "Download the funding announcement from the funder and upload it here — PDF, Word, HTML, or text all work."} The moment it arrives I'll continue automatically — you won't need to select the grant again.`;
+        if (createdChannelName) {
+          await insertMessage(client, {
+            tenantId: ids.tenantId, channelId: targetChannelId, authorKind: "agent",
+            authorAgent: executiveAssistant.agentKey, body: ask, metadata: { pendingUpload: true },
+          });
+          await say(`I've set up #${createdChannelName} for "${pick.title}" and saved your request to apply — one document is needed before the team can start. Details in the channel.`, { goToChannelId: targetChannelId, openWorkspace: true });
+        } else {
+          await say(ask, { pendingUpload: true, openWorkspace: true });
+        }
+        break;
+      }
+      await setWorkspace(client, projectId!, "researching", "Analyzing requirements", null);
       const runId = await deps.engine.start(client, {
         tenantId: ids.tenantId, projectId: projectId!, definition: GRANT_FULL_WORKFLOW,
         createdBy: ids.userId,
-        input: { opportunityId, fileId: context.lastUploadedFileId },
+        input: { opportunityId, fileId: announcementFileId },
       });
       await audit(client, {
         tenantId: ids.tenantId, actorUser: ids.userId, actorAgent: executiveAssistant.agentKey,
         action: "workflow.started", entityType: "workflow_run", entityId: runId,
         metadata: { via: "chat", opportunityId },
       });
-      const kickoff = `Hi team! I'm kicking off our application for the ${pick.title} grant.\n\n📋 Collecting program requirements and application guidelines\n🔍 Checking eligibility for your organization\n👥 Assigning the right teammates to each section\n\nI'll keep everyone updated as we move forward. Let me know if there's anything I should add to our requirements list!`;
+      await recordEvent(client, {
+        tenantId: ids.tenantId, projectId: projectId!, runId,
+        eventType: "step:parse_document", status: "in_progress",
+        title: "Parsing the announcement document",
+        summary: "Extracting the text of the funding announcement and scanning it for prompt-injection content.",
+        agentKey: "grant.requirements_analyst",
+      });
+      const auto = !context.lastUploadedFileId;
+      const kickoff = `I've selected "${pick.title}"${pick.number ? `, opportunity ${pick.number}` : ""}.${auto ? " I retrieved the funding announcement automatically and stored it in the workspace." : ""} The team is now parsing it, extracting every requirement into the compliance matrix, and checking eligibility against your organization's certified facts. Follow the live timeline in the workspace panel — I'll come back to you at the go/no-go decision.`;
       if (createdChannelName) {
         await insertMessage(client, {
           tenantId: ids.tenantId, channelId: targetChannelId, authorKind: "agent",
-          authorAgent: executiveAssistant.agentKey, body: kickoff, metadata: { runId },
+          authorAgent: executiveAssistant.agentKey, body: kickoff, metadata: { runId, openWorkspace: true },
         });
         await say(`I've set up #${createdChannelName} for this application and brought the grant team in — the work continues there.`, { goToChannelId: targetChannelId, runId });
       } else {
-        await say(kickoff, { runId });
+        await say(kickoff, { runId, openWorkspace: true });
       }
       break;
     }

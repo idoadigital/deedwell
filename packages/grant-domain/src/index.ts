@@ -36,3 +36,4 @@ export {
   GRANT_SLICE_WORKFLOW,
   type GrantServices,
 } from "./workflow.js";
+export { extractDocumentText, stripHtml } from "./documents.js";

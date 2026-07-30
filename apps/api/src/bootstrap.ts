@@ -76,5 +76,7 @@ export async function createDeps(overrides: Partial<{
   const { executiveAssistant, attachEngineBridge } = await import("./assistant.js");
   await seedAgentDefinitions(adminPool, [...ALL_AGENTS, ...WEBSITE_AGENTS, executiveAssistant]);
   attachEngineBridge(deps);
+  const { attachWorkspaceBridge } = await import("./workspace.js");
+  attachWorkspaceBridge(deps);
   return deps;
 }

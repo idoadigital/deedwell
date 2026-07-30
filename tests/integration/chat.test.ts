@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { bridgeFlush } from "../../apps/api/src/assistant.js";
+import { workspaceBridgeFlush } from "../../apps/api/src/workspace.js";
 import { api, createOrg, createTestEnv, registerUser, type TestEnv } from "../helpers.js";
 
 /**
@@ -15,6 +16,7 @@ let orgId: string;
 const drainAll = async () => {
   await env.deps.engine.drain("test-worker");
   await bridgeFlush();
+  await workspaceBridgeFlush();
 };
 
 const send = (channelId: string, body: string, fileId?: string) =>
@@ -88,35 +90,122 @@ describe("workspace conversations", () => {
     expect(reply.metadata.searchResults[0].title).toContain("[mock source]");
   });
 
-  it("requires the announcement document before applying — no guessing", async () => {
-    const res = await send(searchChannelId, "apply for #1");
-    expect(res.body.messages.at(-1).body).toContain("attach");
+  it("asks a NAMED clarification when 'apply for it' is ambiguous", async () => {
+    const res = await send(searchChannelId, "apply for it");
+    const reply = res.body.messages.at(-1).body as string;
+    expect(reply).toContain("Capacity Building");
+    expect(reply).toContain("Innovation Fund");
   });
 
-  it("creates a project channel and starts the workflow when the document is attached", async () => {
+  let pendingProjectId: string;
+  let pendingChannelId: string;
+
+  it("saves the application intent when announcement retrieval fails — no generic re-ask", async () => {
+    // MOCK-002 has no retrievable announcement: honest failure + saved intent.
+    const res = await send(searchChannelId, "apply for #2");
+    const reply = res.body.messages.at(-1);
+    expect(reply.body).toContain("saved");
+    pendingChannelId = reply.metadata.goToChannelId;
+    expect(pendingChannelId).toBeTruthy();
+
+    const ws = await api(env.app, "GET", `/v1/orgs/${orgId}/workspace`, { token });
+    const ch = ws.body.channels.find((c: any) => c.id === pendingChannelId);
+    pendingProjectId = ch.project_id;
+    const detail = await api(
+      env.app, "GET", `/v1/orgs/${orgId}/projects/${pendingProjectId}/grant-workspace`, { token }
+    );
+    expect(detail.status).toBe(200);
+    expect(detail.body.project.pending_intent.type).toBe("start_application");
+    // The failed retrieval is a FAILED event and a failed source — never faked.
+    expect(detail.body.events.some((e: any) => e.event_type === "announcement_retrieval_failed" && e.status === "failed")).toBe(true);
+    expect(detail.body.sources.some((sc: any) => sc.fetch_status === "failed")).toBe(true);
+    expect(detail.body.events.some((e: any) => e.event_type === "workspace_created")).toBe(true);
+  });
+
+  it("answers 'where do I find the announcement document?' with the exact grant", async () => {
+    const res = await send(searchChannelId, "where do I find the announcement document?");
+    const reply = res.body.messages.at(-1).body as string;
+    expect(reply).toContain("Innovation Fund");           // names the actual grant
+    expect(reply).toContain("already saved");             // intent preserved
+    expect(reply).not.toContain("couldn't map that");     // never a generic re-ask
+  });
+
+  it("treats 'apply for it' as the saved application, not a new question", async () => {
+    const res = await send(searchChannelId, "apply for it");
+    const reply = res.body.messages.at(-1).body as string;
+    expect(reply).toContain("Innovation Fund");
+    expect(reply).toContain("saved");
+  });
+
+  it("resumes the blocked application automatically when the document arrives", async () => {
     const doc = Buffer.from(
       "Applicants must be a registered 501(c)(3) nonprofit organization.\nThe narrative must not exceed 300 words and must describe the target population.\n",
       "utf8"
     ).toString("base64");
-    const upload = await api(env.app, "POST", `/v1/orgs/${orgId}/channels/${searchChannelId}/files`, {
+    const upload = await api(env.app, "POST", `/v1/orgs/${orgId}/channels/${pendingChannelId}/files`, {
       token, body: { filename: "announcement.txt", mime: "text/plain", contentBase64: doc },
     });
-    expect(upload.status).toBe(201);
-    await send(searchChannelId, `Attached: announcement.txt`, upload.body.fileId);
+    const res = await send(pendingChannelId, "Attached: announcement.txt", upload.body.fileId);
+    const reply = res.body.messages.at(-1);
+    expect(reply.body.toLowerCase()).toContain("resum");
+    expect(reply.metadata.runId).toBeTruthy();
 
-    const res = await send(searchChannelId, "apply for #1");
+    const detail = await api(
+      env.app, "GET", `/v1/orgs/${orgId}/projects/${pendingProjectId}/grant-workspace`, { token }
+    );
+    expect(detail.body.project.pending_intent).toBeNull(); // blocker cleared
+    expect(detail.body.events.some((e: any) => e.event_type === "intent_resumed")).toBe(true);
+    await drainAll();
+  });
+
+  it("retrieves the announcement automatically and starts the workflow on Apply", async () => {
+    // Fresh channel: nothing uploaded here, so retrieval must do the work.
+    const workChannel = channels.find((c) => c.key === "grant-work")!.id;
+    await send(workChannel, "Find grants for our youth development program");
+    // Structured Apply-button event: exact grant, not a re-parsed "#1".
+    const res = await api(env.app, "POST", `/v1/orgs/${orgId}/channels/${workChannel}/messages`, {
+      token, body: {
+        body: "Apply for #1 — youth development Capacity Building Program [mock source]",
+        action: {
+          type: "start_grant_application", index: 1,
+          title: "youth development Capacity Building Program [mock source]",
+          number: "MOCK-2026-001", funder: "Mock Federal Agency", externalId: "MOCK-001",
+        },
+      },
+    });
     const reply = res.body.messages.at(-1);
     expect(reply.body).toContain("set up #");
     grantChannelId = reply.metadata.goToChannelId;
     expect(grantChannelId).toBeTruthy();
 
+    const ws = await api(env.app, "GET", `/v1/orgs/${orgId}/workspace`, { token });
+    const projectId = ws.body.channels.find((c: any) => c.id === grantChannelId).project_id;
+    const detail = await api(
+      env.app, "GET", `/v1/orgs/${orgId}/projects/${projectId}/grant-workspace`, { token }
+    );
+    // Real retrieval recorded with provenance; workflow started immediately.
+    expect(detail.body.events.some((e: any) => e.event_type === "announcement_retrieved" && e.status === "completed")).toBe(true);
+    expect(detail.body.sources.some((sc: any) => sc.fetch_status === "retrieved" && sc.excerpt.includes("[mock source announcement]"))).toBe(true);
+    expect(detail.body.files.length).toBeGreaterThan(0);
+    expect(detail.body.run).toBeTruthy();
+
     await drainAll();
     const msgs = await messagesOf(grantChannelId);
-    // Kickoff + Grace's eligibility pause asking for facts.
-    expect(msgs.some((m) => m.body.includes("kicking off our application"))).toBe(true);
+    expect(msgs.some((m) => m.body.includes("I've selected"))).toBe(true);
     const ask = msgs.find((m) => m.metadata.infoRequest);
     expect(ask).toBeTruthy();
     expect(ask!.metadata.infoRequest).toContain("entity_type");
+
+    // The timeline shows the real steps the durable engine persisted, and the
+    // waiting run surfaces its open questions as a prefillable intake form.
+    const after = await api(
+      env.app, "GET", `/v1/orgs/${orgId}/projects/${projectId}/grant-workspace`, { token }
+    );
+    expect(after.body.events.some((e: any) => e.event_type === "step:extract_requirements")).toBe(true);
+    expect(after.body.requirements.length).toBeGreaterThan(0);
+    expect(after.body.questions.some((q: any) => q.key === "entity_type")).toBe(true);
+    expect(after.body.completion).toBeGreaterThan(0);
+    expect(after.body.completion).toBeLessThan(100);
   });
 
   it("accepts facts as a chat reply and reaches the bid gate as a message", async () => {

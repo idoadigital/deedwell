@@ -22,6 +22,7 @@ import {
   reviewerPanel,
 } from "./agents.js";
 import { upsertArtifactVersion } from "./artifacts.js";
+import { extractDocumentText } from "./documents.js";
 import { verifyClaims } from "./claims.js";
 import { deriveEligibilityRules, evaluateEligibility } from "./eligibility.js";
 import { computeBidDecision } from "./bidnobid.js";
@@ -95,12 +96,13 @@ export function buildGrantFullWorkflow(): WorkflowDefinition<GrantServices> {
       // ------------------------------------------------------------------
       async parse_document(ctx): Promise<StepResult> {
         const input = Input.parse(ctx.state.input);
-        const { rows } = await ctx.client.query("SELECT storage_key FROM files WHERE id = $1", [
+        const { rows } = await ctx.client.query("SELECT storage_key, filename FROM files WHERE id = $1", [
           input.fileId,
         ]);
         if (!rows[0]) throw new Error(`File ${input.fileId} not found in tenant scope`);
-        const text = (await ctx.services.storage.get(rows[0].storage_key)).toString("utf8");
-        if (!text.trim()) throw new Error("Uploaded document is empty");
+        const raw = await ctx.services.storage.get(rows[0].storage_key);
+        const { text } = await extractDocumentText(raw, String(rows[0].filename));
+        if (!text.trim()) throw new Error("Could not extract any text from the uploaded document");
         const warnings = scanForInjection(text);
         await ctx.client.query(
           "UPDATE grant_opportunities SET injection_warnings = $2 WHERE id = $1",

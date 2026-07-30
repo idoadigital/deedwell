@@ -294,8 +294,10 @@ export interface ChatMessage {
   metadata: {
     searchResults?: Array<{
       index: number; title: string; funder?: string; number?: string;
-      closeDate?: string | null; sourceUrl?: string;
+      closeDate?: string | null; sourceUrl?: string; externalId?: string;
     }>;
+    openWorkspace?: boolean;
+    pendingUpload?: boolean;
     approvalId?: string;
     approvalKind?: string;
     approvalPayload?: Record<string, unknown>;
@@ -315,4 +317,48 @@ export interface MemberInfo {
   display_name: string;
   email: string;
   role: OrgRole;
+}
+
+// ---- grant application workspace (workspace spec) --------------------------
+
+export interface WorkspaceEvent {
+  id: string; run_id: string | null; event_type: string; title: string; summary: string;
+  status: "in_progress" | "completed" | "failed" | "blocked";
+  agent_key: string | null; artifact_id: string | null;
+  metadata: Record<string, unknown>; error: string | null;
+  created_at: string; completed_at: string | null;
+}
+
+export interface ResearchSource {
+  id: string; url: string | null; title: string; publisher: string | null;
+  source_type: string; reliability: string; fetch_status: string;
+  file_id: string | null; excerpt: string; retrieved_at: string;
+}
+
+export interface WorkspaceQuestion {
+  key: string; label: string; reasonNeeded: string; prefill: string | null;
+}
+
+export interface GrantWorkspace {
+  project: {
+    id: string; name: string; type: string; workspace_status: string; workspace_phase: string;
+    pending_intent: Record<string, unknown> | null;
+    grant_title: string | null; funder: string | null; opportunity_number: string | null;
+    deadline: string | null; source_url: string | null;
+  };
+  run: { id: string; status: string; current_step: string; last_error: string | null } | null;
+  completion: number;
+  events: WorkspaceEvent[];
+  sources: ResearchSource[];
+  artifacts: Array<{ id: string; type: string; title: string; current_version: number; updated_at: string }>;
+  requirements: Array<{ key?: string; kind?: string; text?: string; mandatory?: boolean; sourceLine?: string }>;
+  eligibility: { overall: string; rule_findings: unknown[]; missing_facts: string[]; created_at: string } | null;
+  files: Array<{ id: string; filename: string; mime: string; size_bytes: number; created_at: string }>;
+  questions: WorkspaceQuestion[];
+}
+
+export interface GrantActionRef {
+  type: "start_grant_application";
+  index?: number | null; title: string; number?: string | null; funder?: string | null;
+  closeDate?: string | null; sourceUrl?: string | null; externalId?: string | null;
 }
